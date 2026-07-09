@@ -1,0 +1,40 @@
+# ---- JobPilot / Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+_wheeltest/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets & local config
+.env
+*.local.yaml
+
+# Runtime data
+jobpilot/store/raw/
+out/
+*.sqlite
+*.db
+pgdata/
+
+# ---- Web (Node) ----
+node_modules/
+web/dist/
+web/.vite/
+npm-debug.log*
+yarn-error.log*
+
+# ---- LaTeX build artifacts (generated CVs) ----
+out/**/*.aux
+out/**/*.log
+out/**/*.out
+
+# ---- Editor / OS ----
+.DS_Store
+Thumbs.db

@@ -1,0 +1,46 @@
+# JobPilot non-secret config. Secrets live in .env (see .env.example).
+# Edit here or later via the Settings page (Phase 4+).
+
+app:
+  timezone: Asia/Ho_Chi_Minh
+  edit_max_rounds: 3          # max CV re-tailor rounds per job (K in SKILL.md)
+
+crawl:
+  jobs_per_site: 10           # "crawl ~10 job/site" per the MVP spec
+  fresh_hours: 48             # jobs newer than this get the 🔥 flag
+  rate_limit_seconds: [2.0, 5.0]   # polite delay range between requests
+  match_score_min: 0.30       # min match to surface a job on the dashboard
+  # Stack alerts — crawler filters jobs to these (Java backend focus for now).
+  stacks:
+    - "Java"
+    - "Spring Boot"
+    - "Backend"
+    - "Microservices"
+  # Drop jobs whose title/JD scream out-of-scope.
+  exclude_keywords:
+    - "Senior"
+    - "Lead"
+    - "Manager"
+    - ".NET"
+    - "PHP"
+
+# Sources — pluggable. tier1 = MVP. Enable more later (see PLAN.md §5.1.1).
+sources:
+  - { key: itviec,       tier: 1, enabled: true }
+  - { key: topcv,        tier: 1, enabled: true }
+  - { key: vietnamworks, tier: 1, enabled: true }
+  - { key: topdev,       tier: 1, enabled: false }
+  # tier2/tier3 (careerviet, glints, remoteok, ATS adapters...) added in later phases.
+
+apply:
+  email:
+    enabled: false            # keep off until verified with your own inbox
+    method: gmail             # gmail | smtp
+    from_addr: ""
+  portal_prefill: true        # portal jobs: pre-fill then hand off to user
+
+cv:
+  master_dir: resume          # Master CV source of truth
+  out_dir: out                # tailored CVs land in out/<job_id>/
+  docker_image: csmith/awesome-cv-builder
+  theme: awesome-red          # default Awesome-CV color theme
