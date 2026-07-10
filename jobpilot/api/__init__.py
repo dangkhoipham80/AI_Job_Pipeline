@@ -1,1 +1,1 @@
-"""FastAPI backend (REST + WebSocket). Implemented in Phase 2. See PLAN.md §5.6."""
+"""FastAPI backend (REST + WebSocket). See PLAN.md §5.6."""
