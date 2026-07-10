@@ -34,6 +34,14 @@ yarn-error.log*
 out/**/*.aux
 out/**/*.log
 out/**/*.out
+# Root LaTeX aux (regenerated on build; the .pdf deliverable stays tracked)
+/cv.aux
+/cv.log
+/cv.out
+/resume.aux
+/resume.log
+/resume.out
+/missfont.log
 
 # ---- Editor / OS ----
 .DS_Store

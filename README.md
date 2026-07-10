@@ -31,7 +31,7 @@ docker run -u $UID:$GID --rm -v $PWD:/work csmith/awesome-cv-builder
 ### For Windows (PowerShell)
 
 ```powershell
-docker run --rm -v ${PWD}:/work csmith/awesome-cv-builder
+docker run --rm -v ${PWD}:/work csmith/awesom[math_master_teaching_support_platfrom_be](../../final_thesis/math_master_teaching_support_platfrom_be)e-cv-builder
 ```
 
 ### Output
