@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from jobpilot.store.models import JobStatus
+from jobpilot.store.models import Job, JobStatus
 
 
 class JobOut(BaseModel):
+    """List-row projection (no heavy JD payload)."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -28,7 +31,28 @@ class JobOut(BaseModel):
     crawled_at: datetime | None
 
 
+class JobDetailOut(JobOut):
+    """Detail view: adds JD payload fields pulled from ``Job.payload``."""
+
+    skills: list[str] = []
+    description_md: str = ""
+    is_fresh: bool = False
+
+    @classmethod
+    def from_job(cls, job: Job) -> "JobDetailOut":
+        payload: dict[str, Any] = job.payload or {}
+        return cls(
+            **JobOut.model_validate(job).model_dump(),
+            skills=payload.get("skills", []) or [],
+            description_md=payload.get("description_md", "") or "",
+            is_fresh=bool(payload.get("is_fresh", False)),
+        )
+
+
 class StatsOut(BaseModel):
     total: int
+    fresh: int
     by_status: dict[str, int]
     by_source: dict[str, int]
+    by_level: dict[str, int]
+    by_day: dict[str, int]  # crawled_at date (YYYY-MM-DD) -> count

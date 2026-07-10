@@ -26,6 +26,7 @@ pgdata/
 # ---- Web (Node) ----
 node_modules/
 web/dist/
+*.tsbuildinfo
 web/.vite/
 npm-debug.log*
 yarn-error.log*

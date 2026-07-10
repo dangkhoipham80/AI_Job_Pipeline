@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* "Flight deck" tokens — warm-neutral surfaces + marigold accent.
+   Chart/viz roles reuse the validated dataviz palette (see charts/palette.ts). */
+:root {
+  --bg: #f4f3ee;
+  --surface: #ffffff;
+  --surface-2: #faf9f5;
+  --border: #e5e3da;
+  --ink: #16150f;
+  --ink-muted: #6d6b62;
+  --accent: #d9822b;
+  --accent-hover: #c06e1e;
+  --accent-ink: #ffffff;
+  --live: #0f9d63;
+  --good: #0ca30c;
+  --critical: #d03b3b;
+  --grid: #e1e0d9;
+  --viz-surface: #ffffff;
+}
+
+.dark {
+  --bg: #0d0d0b;
+  --surface: #1a1a18;
+  --surface-2: #161614;
+  --border: #2a2a26;
+  --ink: #f4f3ec;
+  --ink-muted: #9d9b90;
+  --accent: #eda048;
+  --accent-hover: #f2ad5e;
+  --accent-ink: #1a1207;
+  --live: #16b877;
+  --good: #0ca30c;
+  --critical: #e66767;
+  --grid: #2c2c2a;
+  --viz-surface: #1a1a19;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Recessive scrollbars so data stays the loudest thing on the page. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

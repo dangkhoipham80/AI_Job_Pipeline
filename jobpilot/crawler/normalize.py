@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from jobpilot.config import Config
 from jobpilot.crawler.text import clean_text, dedup_key, html_to_markdown
 from jobpilot.crawler.types import RawJob
+from jobpilot.timeutil import VN_TZ, vn_now  # re-exported for callers/tests
 
-VN_TZ = timezone(timedelta(hours=7))  # Asia/Ho_Chi_Minh (no DST)
-
-
-def vn_now() -> datetime:
-    """Current time in Vietnam (tz-aware)."""
-    return datetime.now(VN_TZ)
+__all__ = [
+    "VN_TZ",
+    "vn_now",
+    "parse_posted_at",
+    "infer_level",
+    "stack_match_score",
+    "title_excluded",
+    "NormalizedJob",
+    "normalize",
+]
 
 
 # --------------------------------------------------------------------------- #
