@@ -26,9 +26,9 @@ crawl:
 
 # Sources — pluggable. tier1 = MVP. Enable more later (see PLAN.md §5.1.1).
 sources:
-  - { key: itviec,       tier: 1, enabled: true }
-  - { key: topcv,        tier: 1, enabled: true }
-  - { key: vietnamworks, tier: 1, enabled: true }
+  - { key: itviec,       tier: 1, enabled: true }   # MVP source (Phase 3)
+  - { key: topcv,        tier: 1, enabled: false }  # scaffold — enable once parser filled
+  - { key: vietnamworks, tier: 1, enabled: false }  # scaffold — enable once parser filled
   - { key: topdev,       tier: 1, enabled: false }
   # tier2/tier3 (careerviet, glints, remoteok, ATS adapters...) added in later phases.
 

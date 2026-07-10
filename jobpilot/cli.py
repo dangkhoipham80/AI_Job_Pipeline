@@ -1,8 +1,8 @@
 """JobPilot CLI. Zero extra deps (argparse). Subcommands grow per phase.
 
-    python -m jobpilot.cli config    # validate + print resolved config (Phase 0)
-    python -m jobpilot.cli crawl     # Phase 3
-    python -m jobpilot.cli serve     # Phase 2+ (API)
+python -m jobpilot.cli config    # validate + print resolved config (Phase 0)
+python -m jobpilot.cli crawl     # Phase 3
+python -m jobpilot.cli serve     # Phase 2+ (API)
 """
 
 from __future__ import annotations
@@ -55,6 +55,73 @@ def cmd_config(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build(args: argparse.Namespace) -> int:
+    from jobpilot.config import REPO_ROOT
+    from jobpilot.tailor.build import BuildError, build_cv
+
+    work_dir = args.dir or str(REPO_ROOT)
+    try:
+        result = build_cv(work_dir, entry=args.entry)
+    except BuildError as exc:
+        print(f"BUILD FAILED: {exc}", file=sys.stderr)
+        return 1
+    ok = "OK: 1 page" if result.pages == 1 else f"WARNING: {result.pages} pages (CV should be 1)"
+    print(f"Built {result.pdf}  [{ok}]")
+    return 0
+
+
+def cmd_crawl(args: argparse.Namespace) -> int:
+    from jobpilot.crawler.pipeline import default_query, run_crawl
+    from jobpilot.crawler.registry import build_scrapers
+    from jobpilot.store.db import session_scope
+
+    cfg = get_config()
+    scrapers = build_scrapers(cfg, respect_robots=not args.no_robots)
+    if not scrapers:
+        print("No enabled sources with a registered scraper. Check config.yaml.", file=sys.stderr)
+        return 1
+
+    query = args.query or default_query(cfg)
+    print(
+        f"Crawling {[s.source for s in scrapers]}  query={query!r}  limit={cfg.crawl.jobs_per_site}"
+    )
+    with session_scope() as db:
+        report = run_crawl(scrapers, cfg, db, query=query)
+
+    for site in report.sites:
+        s = site.stats
+        status = "ok " if site.ok else "FAIL"
+        detail = (
+            f"error={site.error}"
+            if not site.ok
+            else (
+                f"fetched={s.fetched} new={s.inserted} upd={s.updated} "
+                f"dup={s.duplicates} filtered={s.filtered} fresh={s.fresh}"
+            )
+        )
+        print(f"  [{status}] {site.source:14s} {detail}")
+    t = report.totals
+    print(
+        f"Total: new={t.inserted} updated={t.updated} duplicates={t.duplicates} fresh={t.fresh} (run #{report.run_id})"
+    )
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print("uvicorn not installed — run: pip install -e '.[api]'", file=sys.stderr)
+        return 1
+    uvicorn.run(
+        "jobpilot.api.main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
+    return 0
+
+
 def _not_yet(phase: str):
     def _run(_: argparse.Namespace) -> int:
         print(f"Not implemented yet — arrives in {phase}. See PLAN.md §9.")
@@ -69,12 +136,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("config", help="validate & print resolved config").set_defaults(func=cmd_config)
-    sub.add_parser("crawl", help="crawl jobs into DB (Phase 3)").set_defaults(
-        func=_not_yet("Phase 3")
+
+    p_build = sub.add_parser("build", help="compile a CV to PDF via Docker (Phase 1)")
+    p_build.add_argument("dir", nargs="?", default=None, help="work dir (default: repo root)")
+    p_build.add_argument("--entry", default="cv.tex", help="LaTeX entry file")
+    p_build.set_defaults(func=cmd_build)
+    p_crawl = sub.add_parser("crawl", help="crawl enabled sources into the DB (Phase 3)")
+    p_crawl.add_argument("--query", default=None, help="search query (default: from config stacks)")
+    p_crawl.add_argument(
+        "--no-robots", action="store_true", help="skip robots.txt checks (debug only)"
     )
-    sub.add_parser("serve", help="run API backend (Phase 2)").set_defaults(
-        func=_not_yet("Phase 2")
-    )
+    p_crawl.set_defaults(func=cmd_crawl)
+    p_serve = sub.add_parser("serve", help="run FastAPI backend (Phase 2)")
+    p_serve.add_argument("--host", default="127.0.0.1", help="bind host (localhost only)")
+    p_serve.add_argument("--port", type=int, default=8000)
+    p_serve.add_argument("--reload", action="store_true", help="auto-reload on code change")
+    p_serve.set_defaults(func=cmd_serve)
     sub.add_parser("run", help="crawl -> notify -> await (Phase 8)").set_defaults(
         func=_not_yet("Phase 8")
     )
