@@ -1,4 +1,6 @@
 import type {
+  CrawlRequest,
+  CrawlSetupInfo,
   Application,
   ApplyOutcome,
   ApplySettings,
@@ -124,7 +126,9 @@ export const api = {
 
   /* Orchestration (Phase 8). Crawling can't answer inside a request, so it
      returns a task and progress arrives over the WebSocket. */
-  startCrawl: (query?: string) => req<Task>(`/crawl${qs({ query })}`, { method: "POST" }),
+  startCrawl: (body: CrawlRequest = {}) =>
+    req<Task>("/crawl", { method: "POST", body: JSON.stringify(body) }),
+  crawlSetup: () => req<CrawlSetupInfo>("/crawl/setup"),
   tasks: (kind?: string) => req<Task[]>(`/tasks${qs({ kind })}`),
   task: (id: string) => req<Task>(`/tasks/${id}`),
   runs: (kind?: string) => req<RunRecord[]>(`/runs${qs({ kind })}`),

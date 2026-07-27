@@ -378,3 +378,34 @@ export const FUNNEL_ORDER: JobStatus[] = [
   "SUBMITTING",
   "SUBMITTED",
 ];
+
+/** One crawl's scope. All optional; omitted fields fall back to Settings. */
+export interface CrawlRequest {
+  query?: string;
+  sources?: string[];
+  limit?: number;
+}
+
+/** A source as the crawl form sees it. */
+export interface CrawlSource {
+  key: string;
+  /** Turned on in Settings. */
+  enabled: boolean;
+  /** A scraper is actually registered for it — enabled but not ready would
+      produce a crawl that silently does nothing. */
+  ready: boolean;
+}
+
+/** Everything the crawl setup form needs, straight from the backend. */
+export interface CrawlSetupInfo {
+  /** Technologies from your CV, most-supported first. */
+  tech: string[];
+  /** Job titles from your experience, seniority stripped. */
+  roles: string[];
+  /** The stacks configured in Settings. */
+  stacks: string[];
+  /** What a crawl searches for when you type nothing. */
+  default_query: string;
+  jobs_per_site: number;
+  sources: CrawlSource[];
+}

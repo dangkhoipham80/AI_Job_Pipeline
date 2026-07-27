@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job, JobStatus
@@ -277,3 +277,15 @@ class ReviewOut(BaseModel):
     plan: dict | None = None
     diff: dict | None = None
     gaps: list[dict] = []
+
+
+class CrawlRequest(BaseModel):
+    """One crawl's scope. Every field is optional and applies to this run only —
+    nothing here is written back to config, so narrowing a single crawl can't
+    quietly become the new default."""
+
+    query: str | None = None
+    # Subset of the sources enabled in Settings. None = all of them.
+    sources: list[str] | None = None
+    limit: int | None = Field(None, ge=1, le=200, description="jobs per site")
+    no_robots: bool = False

@@ -40,13 +40,15 @@ class PlaywrightFetcher:
         headless: bool = True,
         user_agent: str = DEFAULT_USER_AGENT,
         timeout_ms: int = 30_000,
-        wait_until: str = "networkidle",
+        wait_until: str = "domcontentloaded",
+        settle_ms: int = 6_000,
         locale: str = "vi-VN",
     ) -> None:
         self.headless = headless
         self.user_agent = user_agent
         self.timeout_ms = timeout_ms
         self.wait_until = wait_until
+        self.settle_ms = settle_ms
         self.locale = locale
         self._pw = None
         self._browser = None
@@ -73,11 +75,29 @@ class PlaywrightFetcher:
         page = self._ctx.new_page()
         try:
             page.goto(url, wait_until=self.wait_until, timeout=self.timeout_ms)
+            self._settle(page)
             return page.content()
         except Exception as exc:  # pragma: no cover - network dependent
             raise PlaywrightError(f"failed to load {url}: {exc}") from exc
         finally:
             page.close()
+
+    def _settle(self, page) -> None:  # pragma: no cover - network dependent
+        """Give the SPA a chance to hydrate, but never make the fetch depend on it.
+
+        Waiting for ``networkidle`` as the *load* condition is a trap: job boards
+        run analytics beacons and open sockets that never go quiet, so the page
+        renders fine while ``goto`` sits there until it times out and the whole
+        crawl fails with nothing to show. ITviec did exactly that.
+
+        So the load itself only needs the DOM, and idleness becomes a short,
+        optional bonus: if the site settles we get fully hydrated HTML, and if it
+        never does we still return the markup that is already there.
+        """
+        try:
+            page.wait_for_load_state("networkidle", timeout=self.settle_ms)
+        except Exception:
+            page.wait_for_timeout(min(self.settle_ms, 1_500))
 
     __call__ = get
 

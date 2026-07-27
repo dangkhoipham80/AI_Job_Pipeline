@@ -33,17 +33,26 @@ def build_scrapers(
     *,
     fetcher: Fetcher | None = None,
     respect_robots: bool = True,
+    only: list[str] | None = None,
 ) -> list[BaseScraper]:
     """Instantiate scrapers for every enabled+known source in config.
 
     A single ``fetcher`` (e.g. one Playwright session) can be shared across all
     scrapers. Rate limit + robots policy come from config.
+
+    ``only`` narrows the set for a single run without touching config — that is
+    how the dashboard lets you crawl one site without disabling the others. It
+    can only *subtract*: a source disabled in config stays disabled, so the
+    Settings page remains the one place that decides what may run at all.
     """
     from jobpilot.crawler.fetch import DEFAULT_USER_AGENT
 
     low, high = cfg.crawl.rate_limit_seconds
     scrapers: list[BaseScraper] = []
+    wanted = {k.strip().lower() for k in only} if only else None
     for src in cfg.enabled_sources():
+        if wanted is not None and src.key.lower() not in wanted:
+            continue
         cls = SCRAPERS.get(src.key)
         if cls is None:
             log.warning("no scraper registered for source %r — skipping", src.key)

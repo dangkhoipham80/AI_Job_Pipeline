@@ -64,10 +64,12 @@ docker run -u $UID:$GID --rm -v $PWD:/work csmith/awesome-cv-builder
 # rồi đặt trong .env:  DATABASE_URL=postgresql+psycopg://postgres:<pass>@127.0.0.1:5432/jobpilot
 # (Hoặc `docker-compose up -d postgres` nếu muốn chạy Postgres trong Docker.)
 alembic upgrade head                # migrate DB — tạo schema `jobpilot`
-python scripts/seed_demo.py         # (tùy chọn) nạp dữ liệu demo cho dashboard
 uvicorn jobpilot.api.main:app --reload   # API backend (REST + WebSocket) tại :8000
 cd web && npm run dev               # Web Dashboard (Vite) tại :5173  ← control plane chính
-python -m jobpilot.cli crawl        # crawl 3 site → Postgres (hoặc bấm Crawl trên dashboard)
+python -m jobpilot.cli crawl        # crawl các nguồn đang bật → Postgres
+python -m jobpilot.cli crawl --query "java spring" --limit 50   # scope 1 lần chạy
+                                    # (hoặc dùng card "Crawl setup" ở trang Runs: chọn nguồn,
+                                    #  gõ từ khoá — có gợi ý lấy từ Master CV — rồi Crawl now)
 python -m jobpilot.cli cv seed      # tạo Master CV rỗng nếu chưa có (idempotent)
 python -m jobpilot.cli cv import my-cv.local.json   # nạp CV có sẵn vào DB
 python -m jobpilot.cli cv export my-cv.local.json   # backup CV từ DB ra file (gitignored)
@@ -152,7 +154,9 @@ chứ không tạo bản trùng.
 - ✅ **Phase 8** — Orchestration & polish: `orchestrator.py` — `TaskQueue` in-process (ThreadPoolExecutor **1 worker**: máy chạy Docker + browser cùng lúc thì fan-out chỉ tranh tài nguyên, và serial làm chữ "queued" có nghĩa; mỗi task body tự mở session DB riêng vì session SQLAlchemy không thread-safe). Worker thread đẩy progress về event loop của API qua `run_coroutine_threadsafe` → WS `task_updated`. **Invariant**: `status` được ghi *cuối cùng* (sau `result`/`finished_at`) vì đó là tín hiệu mọi consumer poll; eviction history không bao giờ xoá task chưa chạy xong. `POST /crawl` → 202 + task (chặn crawl thứ 2 khi đang chạy: sẽ đua rate-limit cùng site), `GET /tasks[/{id}]`, `GET /runs`, `GET/PUT /settings`. **Settings ghi vào `config.local.yaml` (gitignored) merge đè lên `config.yaml`** — vì comment trong `config.yaml` là tài liệu (nhất là 3 cổng an toàn email) và YAML round-trip sẽ xoá sạch; patch không validate được thì bị từ chối *trước khi ghi*. CLI `run [--query] [--every N]` (loop đơn giản thay vì thêm dependency scheduler; rc=1 khi mọi site fail để cron thấy được). Web: trang **Runs** (queue realtime + history + nút Crawl) và **Settings** (crawl/sources/apply gates/CV, mỗi card save riêng). 279 test pass; verify live: `POST /crawl` → 202, crawl thứ 2 → 409, WS stream `queued→running(progress)→done` với `finished_at`+`result` đầy đủ, site fail được báo chứ không nuốt, settings round-trip mà `config.yaml` **byte-identical**, patch sai bị từ chối, và crawl thật (không có Playwright) fail có thông báo hành động được + vẫn ghi `Run`.
 ### Nợ kỹ thuật còn lại (roadmap PLAN.md §9 đã xong)
 
-- **Crawler**: chỉ ITviec có selector thật; TopCV/VietnamWorks mới là scaffold (disabled trong config đến khi có HTML snapshot thật). Cần `pip install -e '.[crawler]' && playwright install chromium` để crawl.
+- **Crawler**: ITviec + LinkedIn(alerts) chạy thật; TopCV/VietnamWorks/TopDev mới là scaffold (disabled trong config). Trang Runs chỉ cho chọn nguồn `enabled && ready` — `ready` = có scraper đăng ký trong `registry.SCRAPERS`, vì bật trong Settings không có nghĩa là đã implement. Cần `pip install -e '.[crawler]' && playwright install chromium` để crawl.
+- **Bài học selector (ITviec)**: ITviec dùng utility CSS nên **match class theo substring là bẫy** — `[class*=city]` khớp `opa-city-50` khiến mọi job có location `"Hiring"`, `[class*=salary]` bắt trúng banner "IT Salary Report". Location/posted/salary giờ nhận diện **theo giá trị** (danh sách thành phố, regex thời gian), không theo cấu trúc. ITviec giấu lương sau login → `salary=None` là câu trả lời đúng, không phải placeholder. Test `test_itviec.py` ghim đúng các bẫy này.
+- **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp).
 - **Tailor/apply vẫn chạy đồng bộ** trong request (~30–60s). `TaskQueue` đã có sẵn và generic — chuyển sang background chủ yếu là việc của frontend (poll/WS thay vì await response).
 - **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco), diff giữa 2 version bất kỳ. `tex_snapshot` đã lưu mỗi version nên diff làm sau rất nhẹ.
 - **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.

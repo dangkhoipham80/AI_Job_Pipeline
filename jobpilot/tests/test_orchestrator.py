@@ -343,3 +343,66 @@ def test_settings_never_leak_secrets(client):
     blob = str(c.get("/settings", headers=AUTH).json()).lower()
     for word in ("password", "api_key", "refresh_token", "smtp_user"):
         assert word not in blob
+
+
+# --- crawl scoping: sources / limit / suggestions --------------------------- #
+
+
+def test_build_scrapers_only_narrows_never_widens():
+    """`only` can subtract from the enabled set but cannot enable a source that
+    Settings has switched off — Settings stays the single gate."""
+    from jobpilot.config import Config
+    from jobpilot.crawler.registry import build_scrapers
+
+    cfg = Config.model_validate(
+        {
+            "sources": [
+                {"key": "itviec", "enabled": True},
+                {"key": "linkedin", "enabled": True},
+                {"key": "topcv", "enabled": False},
+            ]
+        }
+    )
+    assert {s.source for s in build_scrapers(cfg)} == {"itviec", "linkedin"}
+    assert {s.source for s in build_scrapers(cfg, only=["itviec"])} == {"itviec"}
+    # topcv is disabled in config, so asking for it yields nothing at all.
+    assert build_scrapers(cfg, only=["topcv"]) == []
+
+
+def test_suggest_keywords_reads_stack_and_role_not_prose():
+    from jobpilot.crawler.suggest import suggest_keywords
+    from jobpilot.cv.schema import BulletItem, BulletsSection, CvDocument, Entry, ExperienceSection
+
+    doc = CvDocument(
+        sections=[
+            ExperienceSection(
+                key="experience",
+                title="Work Experience",
+                entries=[
+                    Entry(
+                        title="FPT Software, Junior Software Engineer - Backend",
+                        items=["Did a thing that mentions Nonsense."],
+                        tech_stack=["Java", "Spring Boot"],
+                    )
+                ],
+            ),
+            BulletsSection(
+                key="skills",
+                title="Skills",
+                items=[BulletItem(label="Backend", text="Java, PostgreSQL, Docker")],
+            ),
+            BulletsSection(
+                key="honors",
+                title="Honors",
+                items=[BulletItem(text="Employee of the Year, Excellent Teamwork")],
+            ),
+        ]
+    )
+    out = suggest_keywords(doc)
+
+    # Java appears in both the stack and the Skills line, so it outranks singles.
+    assert out["tech"][0] == "Java"
+    assert {"Spring Boot", "PostgreSQL", "Docker"} <= set(out["tech"])
+    # Seniority dropped, company dropped, prose never considered.
+    assert out["roles"] == ["Software Engineer Backend"]
+    assert not any("Employee of the Year" in t for t in out["tech"])

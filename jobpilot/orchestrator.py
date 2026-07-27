@@ -180,8 +180,17 @@ queue = TaskQueue()
 # --------------------------------------------------------------------------- #
 # Task bodies
 # --------------------------------------------------------------------------- #
-def crawl_body(query: str | None = None, respect_robots: bool = True) -> TaskBody:
-    """A crawl over every enabled source, summarised per site."""
+def crawl_body(
+    query: str | None = None,
+    respect_robots: bool = True,
+    sources: list[str] | None = None,
+    limit: int | None = None,
+) -> TaskBody:
+    """A crawl over the enabled sources, summarised per site.
+
+    ``sources`` and ``limit`` scope one run only; neither is written back to
+    config, so a narrow one-off crawl can't quietly become the new default.
+    """
 
     def body(progress: Progress) -> dict:
         from jobpilot.config import get_config
@@ -190,16 +199,17 @@ def crawl_body(query: str | None = None, respect_robots: bool = True) -> TaskBod
         from jobpilot.store.db import session_scope
 
         cfg = get_config()
-        scrapers = build_scrapers(cfg, respect_robots=respect_robots)
+        scrapers = build_scrapers(cfg, respect_robots=respect_robots, only=sources)
         if not scrapers:
+            asked = f" matching {sources}" if sources else ""
             raise RuntimeError(
-                "no enabled source has a registered scraper — check `sources` in config.yaml"
+                f"no enabled source{asked} has a registered scraper — check `sources` in Settings"
             )
 
         resolved = query or default_query(cfg)
         progress(f"crawling {', '.join(s.source for s in scrapers)} for {resolved!r}")
         with session_scope() as db:
-            report = run_crawl(scrapers, cfg, db, query=resolved)
+            report = run_crawl(scrapers, cfg, db, query=resolved, limit=limit)
 
             sites = [
                 {

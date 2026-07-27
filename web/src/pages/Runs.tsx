@@ -1,19 +1,13 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  Play,
-  XCircle,
-} from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
+import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { clockTime, relativeTime } from "@/lib/format";
-import { Button, Card, CardBody, CardHeader, CardTitle, Input, Skeleton } from "@/components/ui";
+import { Card, CardBody, CardHeader, CardTitle, Skeleton } from "@/components/ui";
+import { CrawlSetup } from "@/components/CrawlSetup";
 import { cn } from "@/lib/utils";
-import type { RunRecord, Task, TaskStatus } from "@/types";
+import type { CrawlRequest, RunRecord, Task, TaskStatus } from "@/types";
 
 /**
  * Runs (PLAN.md §5.6). Two timescales on one page: tasks currently in the
@@ -31,59 +25,39 @@ const STATUS: Record<TaskStatus, { icon: typeof Clock; className: string }> = {
 export function Runs({ version }: { version: number }) {
   const tasks = useApi(() => api.tasks(), [version]);
   const runs = useApi(() => api.runs(), [version]);
-  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const crawl = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.startCrawl(query.trim() || undefined);
-      await tasks.refetch();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not start the crawl");
-    } finally {
-      setBusy(false);
-    }
-  }, [query, tasks]);
 
   const active = (tasks.data ?? []).filter((t) => t.status === "queued" || t.status === "running");
 
+  // Errors surface inside the setup card, next to the choices that caused them.
+  const crawl = useCallback(
+    async (body: CrawlRequest) => {
+      setBusy(true);
+      try {
+        await api.startCrawl(body);
+        await tasks.refetch();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [tasks],
+  );
+
   return (
     <div className="animate-fade-up space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Runs</h1>
-          <p className="text-sm text-ink-muted">
-            What the agent is doing now, and everything it has done.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="query (default: your stacks)"
-            className="w-64"
-          />
-          <Button onClick={crawl} disabled={busy || active.length > 0}>
-            {busy ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-            Crawl now
-          </Button>
-        </div>
+      <div>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Runs</h1>
+        <p className="text-sm text-ink-muted">
+          What the agent is doing now, and everything it has done.
+        </p>
       </div>
 
-      {active.length > 0 && (
-        <p className="text-xs text-ink-muted">
-          One crawl at a time — a second would race the same sites and trip their rate limits.
-        </p>
-      )}
-      {error && (
-        <Card className="flex items-start gap-2 border-critical/40 bg-critical/5 p-3 text-sm">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0 text-critical" />
-          <span>{error}</span>
-        </Card>
-      )}
+      <CrawlSetup
+        version={version}
+        busy={busy}
+        blocked={active.length > 0}
+        onCrawl={crawl}
+      />
 
       <Card>
         <CardHeader>
@@ -193,6 +167,36 @@ function TaskRow({ task }: { task: Task }) {
   );
 }
 
+/**
+ * A run's stats as one readable line.
+ *
+ * The blob is nested — `sites` maps each source to its own counters — so
+ * stringifying the top level gave `sites=[object Object]`, which is worse than
+ * showing nothing. This names the sources instead, since "which site actually
+ * worked" is the question a run history exists to answer.
+ */
+function summarise(stats: Record<string, unknown> | undefined): string {
+  if (!stats) return "";
+  const parts: string[] = [];
+  if (typeof stats.query === "string" && stats.query) parts.push(`"${stats.query}"`);
+
+  const sites = stats.sites as Record<string, { ok?: boolean; inserted?: number }> | undefined;
+  if (sites && typeof sites === "object") {
+    parts.push(
+      ...Object.entries(sites).map(([name, s]) =>
+        s?.ok === false ? `${name}: failed` : `${name}: +${s?.inserted ?? 0}`,
+      ),
+    );
+  }
+
+  for (const [k, v] of Object.entries(stats)) {
+    if (k === "ok" || k === "query" || k === "sites" || v === null) continue;
+    if (typeof v === "object") continue; // nested; already unpacked or not useful inline
+    parts.push(`${k}=${String(v)}`);
+  }
+  return parts.join("  ·  ");
+}
+
 function RunRow({ run }: { run: RunRecord }) {
   const ok = run.stats?.ok;
   const failed = ok === false;
@@ -210,11 +214,11 @@ function RunRow({ run }: { run: RunRecord }) {
           {run.job_count} job{run.job_count === 1 ? "" : "s"} →
         </Link>
       )}
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted">
-        {Object.entries(run.stats ?? {})
-          .filter(([k]) => k !== "ok")
-          .map(([k, v]) => `${k}=${String(v)}`)
-          .join("  ")}
+      <span
+        className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted"
+        title={summarise(run.stats)}
+      >
+        {summarise(run.stats)}
       </span>
       {/* Absolute clock time, not "3h ago": "which of today's crawls was that?"
           is a question relative time cannot answer. */}
