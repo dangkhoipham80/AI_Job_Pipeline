@@ -12,9 +12,17 @@ _wheeltest/
 .ruff_cache/
 .mypy_cache/
 
-# Secrets & local config
+# Secrets & local config. Only the *.example templates are tracked; every file
+# that holds a real credential must match a rule here.
 .env
+.env.*
+!.env.example
 *.local.yaml
+*.local.json
+.claude/settings.local.json
+# Scratch dir used for live end-to-end verification runs (throwaway DBs, PDFs,
+# captured emails) — never part of the project.
+.verify/
 
 # Runtime data
 jobpilot/store/raw/
@@ -45,5 +53,8 @@ out/**/*.out
 /missfont.log
 
 # ---- Editor / OS ----
+.idea/
+.vscode/
+*.swp
 .DS_Store
 Thumbs.db
