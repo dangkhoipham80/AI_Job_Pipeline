@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "template": "awesome_cv",
+  "theme": {
+    "color": "awesome-red",
+    "section_highlight": true,
+    "font_dir": "fonts/"
+  },
+  "header": {
+    "first_name": "KHOI",
+    "last_name": "PHAM",
+    "position": "Fresher Software Engineer",
+    "mobile": "(+84) 795 335 577",
+    "email": "dangkhoipham80@gmail.com",
+    "github": "dangkhoipham80",
+    "linkedin": "khoipham4022",
+    "extra_info": {
+      "label": "Portfolio",
+      "url": "https://portfolio-ten-eta-99ze2lsdkt.vercel.app/"
+    }
+  },
+  "sections": [
+    {
+      "type": "paragraph",
+      "key": "summary",
+      "title": "Summary",
+      "small": true,
+      "text": "Software Engineer focused on backend development and distributed systems. Experienced with Java Spring Boot, RESTful APIs, and CI/CD pipelines in building scalable services. Comfortable working in team environments, following clean code practices, and continuously improving system quality and reliability."
+    },
+    {
+      "type": "education",
+      "key": "education",
+      "title": "Education",
+      "entries": [
+        {
+          "degree": "`Bachelor's`, Software Engineering",
+          "institution": "FPT University",
+          "location": "Ho Chi Minh, Viet Nam",
+          "date": "Oct. 2022 -- Apr. 2026",
+          "items": [
+            "Major in **Java Backend Development**.",
+            "Current GPA: **3.2/4.0**."
+          ]
+        },
+        {
+          "degree": "High School Diploma, Specialized in **Mathematics**",
+          "institution": "Le Quy Don High School for the Gifted",
+          "location": "Vung Tau, Viet Nam",
+          "date": "2019 -- 2022",
+          "items": [
+            "Graduated with GPA: **9.2/10.0**."
+          ]
+        }
+      ]
+    },
+    {
+      "type": "experience",
+      "key": "experience",
+      "title": "Work Experience",
+      "entries": [
+        {
+          "title": "FPT Software, Junior Software Engineer - Backend",
+          "date": "Ho Chi Minh City, Dec. 2024 -- Present",
+          "items": [
+            "Worked in a **Scrum-based** microservices environment using `Java Spring Boot` to develop and maintain backend services.",
+            "Implemented and migrated RESTful APIs for enterprise systems following clean architecture principles.",
+            "Wrote **unit tests** with `JUnit`, achieving **over 80% code coverage** measured by **JaCoCo**.",
+            "Debugged and fixed production issues by analyzing logs and metrics on `Grafana`.",
+            "Deployed services through `Jenkins CI/CD` pipelines and managed tasks and sprints using **Jira**."
+          ],
+          "tech_stack": [
+            "Java",
+            "Spring Boot",
+            "Microservices",
+            "JUnit",
+            "JaCoCo",
+            "Grafana",
+            "Jenkins",
+            "Jira"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "projects",
+      "key": "projects",
+      "title": "Projects",
+      "entries": [
+        {
+          "title": "Slide AI -- Generative Lesson Platform (5 members, `Java` + `Python`)",
+          "url": "https://github.com/orgs/MSS301/repositories",
+          "date": "Aug 2025 -- Nov 2025",
+          "items": [
+            "Built an AI-powered learning platform that ingests textbooks, detects lessons, and serves grounded Q&A using **RAG** and vector search.",
+            "Designed a **microservices** system with `Spring Boot`, **Spring Cloud Gateway**, **Eureka**, and **JWT**.",
+            "Built an RAG pipeline using **FastAPI**, **LangChain**, **FAISS**, **MongoDB**, and OCR."
+          ],
+          "role": "Team Lead",
+          "tech_stack": [
+            "Spring Boot",
+            "FastAPI",
+            "Kafka",
+            "MongoDB",
+            "React",
+            "Docker"
+          ]
+        },
+        {
+          "title": "EduPath -- Educational Platform (5 members, `Java`)",
+          "url": "https://gitlab.com/fpt2843445/period_7/sba301/edupath",
+          "date": "Jun 2024 -- Jul 2024",
+          "items": [
+            "Built a university exploration platform with an **AI-powered chatbot**.",
+            "Developed real-time data visualization with **PostgreSQL** and **MongoDB**."
+          ],
+          "role": "Team Lead",
+          "tech_stack": [
+            "Java",
+            "Spring Boot",
+            "PostgreSQL",
+            "MongoDB",
+            "React"
+          ]
+        },
+        {
+          "title": "Food Forum -- Social Platform (5 members, `Python`)",
+          "url": "https://gitlab.com/fpt2843445/period_7/swd392/food-forum",
+          "date": "May 2024 -- Jul 2024",
+          "items": [
+            "Built a social platform with **FastAPI WebSocket** for real-time messaging.",
+            "Implemented secure auth with **Firebase**, **JWT**, and a **React** + **TailwindCSS** UI."
+          ],
+          "role": "Team Lead",
+          "tech_stack": [
+            "FastAPI",
+            "Firebase",
+            "JWT",
+            "React",
+            "TailwindCSS"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "bullets",
+      "key": "honors",
+      "title": "Honors & Awards",
+      "items": [
+        {
+          "text": "**Solved 300+ LeetCode Problems** covering Data Structures & Algorithms.",
+          "date": "2024 -- Present"
+        }
+      ]
+    },
+    {
+      "type": "bullets",
+      "key": "skills",
+      "title": "Skills",
+      "items": [
+        {
+          "label": "Languages & Frameworks",
+          "text": "Java, Spring Boot, Python, FastAPI"
+        },
+        {
+          "label": "Databases & Testing",
+          "text": "PostgreSQL, MongoDB, JUnit, JaCoCo"
+        },
+        {
+          "label": "Cloud, DevOps & Tools",
+          "text": "AWS, Docker, Kubernetes, Jenkins, Git, Jira"
+        }
+      ]
+    }
+  ]
+}

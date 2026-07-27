@@ -53,6 +53,98 @@ export interface JobsQuery {
   offset?: number;
 }
 
+/* CV Studio (Phase 4.5) — mirrors jobpilot/cv/schema.py -------------------- */
+
+export interface CvTheme {
+  color: string;
+  section_highlight: boolean;
+  font_dir: string;
+}
+
+export interface CvHeader {
+  first_name: string;
+  last_name: string;
+  position: string;
+  address: string | null;
+  mobile: string | null;
+  email: string | null;
+  homepage: string | null;
+  github: string | null;
+  linkedin: string | null;
+  extra_info: { label: string; url: string } | null;
+  quote: string | null;
+}
+
+export interface CvBulletItem {
+  label: string | null;
+  text: string;
+  date: string | null;
+}
+
+export interface CvEducationEntry {
+  degree: string;
+  institution: string;
+  location: string;
+  date: string;
+  items: string[];
+}
+
+export interface CvEntry {
+  title: string;
+  date: string;
+  url: string | null;
+  items: string[];
+  role: string | null;
+  tech_stack: string[];
+}
+
+interface CvSectionBase {
+  key: string;
+  title: string;
+  enabled: boolean;
+}
+
+export type CvSection =
+  | (CvSectionBase & { type: "paragraph"; text: string; small: boolean })
+  | (CvSectionBase & { type: "bullets"; items: CvBulletItem[] })
+  | (CvSectionBase & { type: "education"; entries: CvEducationEntry[] })
+  | (CvSectionBase & { type: "experience"; entries: CvEntry[] })
+  | (CvSectionBase & { type: "projects"; entries: CvEntry[] });
+
+export type CvSectionType = CvSection["type"];
+
+export interface CvDocument {
+  schema_version: number;
+  template: string;
+  theme: CvTheme;
+  header: CvHeader;
+  sections: CvSection[];
+}
+
+export interface CvDocumentResponse {
+  scope: string;
+  version: number;
+  document: CvDocument;
+}
+
+export interface CvVersion {
+  version: number;
+  author: "user" | "agent";
+  created_at: string | null;
+}
+
+export interface CvVersionDetail extends CvVersion {
+  document: CvDocument;
+  tex: string;
+}
+
+export interface CvCompileResult {
+  scope: string;
+  version: number;
+  pages: number;
+  pdf_url: string;
+}
+
 // Pipeline order for the funnel (PLAN.md §4 state machine).
 export const FUNNEL_ORDER: JobStatus[] = [
   "DISCOVERED",

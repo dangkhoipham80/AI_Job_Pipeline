@@ -70,6 +70,50 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cv(args: argparse.Namespace) -> int:
+    """CV Studio from the terminal: seed / render / build / list versions."""
+    from jobpilot.cv import store
+    from jobpilot.cv.compile import build_dir, compile_document
+    from jobpilot.cv.render import write_document
+    from jobpilot.store.db import session_scope
+    from jobpilot.tailor.build import BuildError
+
+    with session_scope() as db:
+        if args.cv_command == "seed":
+            row = store.ensure_master(db)
+            print(f"Master CV at version {row.version} (author={row.author})")
+            return 0
+
+        if args.cv_command == "versions":
+            rows = store.list_versions(db, args.scope)
+            if not rows:
+                print(f"No versions for scope {args.scope!r}.")
+                return 1
+            for r in rows:
+                print(f"  v{r.version:<4d} {r.author:<6s} {r.created_at}")
+            return 0
+
+        try:
+            doc = store.get_document(db, args.scope)
+        except store.ScopeNotFound as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+
+    if args.cv_command == "render":
+        dest = write_document(doc, build_dir(args.scope))
+        print(f"Rendered .tex into {dest}")
+        return 0
+
+    try:
+        result = compile_document(doc, args.scope)
+    except BuildError as exc:
+        print(f"BUILD FAILED: {exc}", file=sys.stderr)
+        return 1
+    ok = "OK: 1 page" if result.pages == 1 else f"WARNING: {result.pages} pages (CV should be 1)"
+    print(f"Built {result.pdf}  [{ok}]")
+    return 0
+
+
 def cmd_crawl(args: argparse.Namespace) -> int:
     from jobpilot.crawler.pipeline import default_query, run_crawl
     from jobpilot.crawler.registry import build_scrapers
@@ -141,6 +185,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("dir", nargs="?", default=None, help="work dir (default: repo root)")
     p_build.add_argument("--entry", default="cv.tex", help="LaTeX entry file")
     p_build.set_defaults(func=cmd_build)
+    p_cv = sub.add_parser("cv", help="CV Studio: seed/render/build/versions (Phase 4.5)")
+    cv_sub = p_cv.add_subparsers(dest="cv_command", required=True)
+    cv_sub.add_parser("seed", help="import the Master CV seed into cv_versions (idempotent)")
+    for name, helptext in (
+        ("render", "write the structured CV out as .tex"),
+        ("build", "render + compile to PDF via Docker"),
+        ("versions", "list the version history"),
+    ):
+        sp = cv_sub.add_parser(name, help=helptext)
+        sp.add_argument("scope", nargs="?", default="master", help="'master' or a job id")
+    p_cv.set_defaults(func=cmd_cv)
+
     p_crawl = sub.add_parser("crawl", help="crawl enabled sources into the DB (Phase 3)")
     p_crawl.add_argument("--query", default=None, help="search query (default: from config stacks)")
     p_crawl.add_argument(

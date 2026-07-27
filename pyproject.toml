@@ -16,11 +16,16 @@ dependencies = [
 data = ["sqlalchemy>=2.0", "alembic>=1.13", "psycopg[binary]>=3.1"]   # Phase 2
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]                    # Phase 2
 crawler = ["playwright>=1.43", "httpx>=0.27", "beautifulsoup4>=4.12"]  # Phase 3
-tailor = ["anthropic>=0.25", "jinja2>=3.1", "pypdf>=4.0"]             # Phase 5 (+build verify)
+cv = ["jinja2>=3.1", "pypdf>=4.0"]                                    # Phase 4.5 (CV Studio)
+tailor = ["anthropic>=0.25"]                                          # Phase 5
 slack = ["slack-bolt>=1.18"]                                          # Phase 7
-all = ["jobpilot[data,api,crawler,tailor,slack]"]
-# httpx: FastAPI TestClient + robots fetch; beautifulsoup4: crawler parser tests.
-dev = ["pytest>=8.0", "ruff>=0.4", "black>=24.0", "httpx>=0.27", "beautifulsoup4>=4.12"]
+all = ["jobpilot[data,api,crawler,cv,tailor,slack]"]
+# httpx: FastAPI TestClient + robots fetch; beautifulsoup4: crawler parser tests;
+# jinja2/pypdf: CV render + page-count tests.
+dev = [
+  "pytest>=8.0", "ruff>=0.4", "black>=24.0",
+  "httpx>=0.27", "beautifulsoup4>=4.12", "jinja2>=3.1", "pypdf>=4.0",
+]
 
 [project.scripts]
 jobpilot = "jobpilot.cli:main"
@@ -33,8 +38,8 @@ build-backend = "setuptools.build_meta"
 include = ["jobpilot*"]
 
 [tool.setuptools.package-data]
-# Ship config.yaml inside the wheel so non-editable installs can load it.
-jobpilot = ["config.yaml"]
+# Ship config.yaml, the Jinja2 CV templates, and the Master CV seed in the wheel.
+jobpilot = ["config.yaml", "cv/templates/*/*.j2", "cv/master_seed.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["jobpilot/tests"]

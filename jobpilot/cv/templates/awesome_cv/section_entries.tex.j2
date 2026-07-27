@@ -1,0 +1,25 @@
+<# Shared by the 'experience' and 'projects' section types (\cvsimpleentry). #>
+\cvsection{<< s.title|tex >>}
+\begin{cventries}
+<% for e in s.entries %>
+
+  \cvsimpleentry
+<% if e.url %>
+  {\hreficon{<< e.url|url >>}{\textbf{<< e.title|tex >>}}}
+<% else %>
+  {\textbf{<< e.title|tex >>}}
+<% endif %>
+  {<< e.date|tex >>}
+  {
+    \begin{cvitems}
+<% for it in e.items %>
+      \item {<< it|tex >>}
+<% endfor %>
+<% if e.role or e.tech_stack %>
+      \item {<% if e.role %>\textbf{Role}: << e.role|tex >><% if e.tech_stack %> \quad | \quad <% endif %><% endif %><% if e.tech_stack %><% if s.type == 'experience' %>\tech{Tech Stack}<% else %>\textbf{Tech Stack}<% endif %>: << e.tech_stack|techlist >><% endif %>}
+<% endif %>
+    \end{cvitems}
+  }
+<% endfor %>
+
+\end{cventries}

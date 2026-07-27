@@ -1,4 +1,14 @@
-import type { Job, JobDetail, JobsQuery, Stats } from "@/types";
+import type {
+  CvCompileResult,
+  CvDocument,
+  CvDocumentResponse,
+  CvVersion,
+  CvVersionDetail,
+  Job,
+  JobDetail,
+  JobsQuery,
+  Stats,
+} from "@/types";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? "changeme";
@@ -40,6 +50,8 @@ function qs(params: Record<string, unknown>): string {
 }
 
 const jobPath = (id: string) => `/jobs/${id.split("/").map(encodeURIComponent).join("/")}`;
+// "master" or a job id — job ids contain ':' and must survive as one segment.
+const cvPath = (scope: string) => `/cv/${encodeURIComponent(scope)}`;
 
 export const api = {
   stats: () => req<Stats>("/stats"),
@@ -47,6 +59,24 @@ export const api = {
   job: (id: string) => req<JobDetail>(jobPath(id)),
   shortlist: (id: string) => req<JobDetail>(`${jobPath(id)}/shortlist`, { method: "POST" }),
   skip: (id: string) => req<JobDetail>(`${jobPath(id)}/skip`, { method: "POST" }),
+
+  /* CV Studio (Phase 4.5) */
+  cv: (scope: string) => req<CvDocumentResponse>(cvPath(scope)),
+  saveCv: (scope: string, document: CvDocument) =>
+    req<CvDocumentResponse>(cvPath(scope), { method: "PUT", body: JSON.stringify(document) }),
+  compileCv: (scope: string) => req<CvCompileResult>(`${cvPath(scope)}/compile`, { method: "POST" }),
+  cvVersions: (scope: string) => req<CvVersion[]>(`${cvPath(scope)}/versions`),
+  cvVersion: (scope: string, version: number) =>
+    req<CvVersionDetail>(`${cvPath(scope)}/versions/${version}`),
+  rollbackCv: (scope: string, version: number) =>
+    req<CvDocumentResponse>(`${cvPath(scope)}/rollback/${version}`, { method: "POST" }),
+
+  /** Fetch the compiled PDF as an object URL (the <iframe> can't send the token). */
+  cvPdfUrl: async (scope: string): Promise<string> => {
+    const res = await fetch(`${BASE}${cvPath(scope)}/pdf`, { headers: { "X-API-Token": TOKEN } });
+    if (!res.ok) throw new ApiError(res.status, "PDF not available");
+    return URL.createObjectURL(await res.blob());
+  },
 };
 
 export function wsUrl(): string {

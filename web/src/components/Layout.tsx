@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { Briefcase, LayoutDashboard, Moon, Plane, Sun } from "lucide-react";
+import { Briefcase, FileText, LayoutDashboard, Moon, Plane, Sun } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/", label: "Deck", icon: LayoutDashboard, end: true },
   { to: "/jobs", label: "Jobs", icon: Briefcase, end: false },
+  { to: "/cv", label: "CV Studio", icon: FileText, end: false },
 ];
 
 export function Layout({ live, children }: { live: boolean; children: ReactNode }) {

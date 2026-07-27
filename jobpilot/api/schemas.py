@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job, JobStatus
 
 
@@ -56,3 +57,36 @@ class StatsOut(BaseModel):
     by_source: dict[str, int]
     by_level: dict[str, int]
     by_day: dict[str, int]  # crawled_at date (YYYY-MM-DD) -> count
+
+
+# --------------------------------------------------------------------------- #
+# CV Studio (Phase 4.5)
+# --------------------------------------------------------------------------- #
+class CvDocumentOut(BaseModel):
+    """The structured CV plus which version it is."""
+
+    scope: str
+    version: int
+    document: CvDocument
+
+
+class CvVersionOut(BaseModel):
+    """Version-history row (content omitted — fetch the detail endpoint for it)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    version: int
+    author: str
+    created_at: datetime | None
+
+
+class CvVersionDetailOut(CvVersionOut):
+    document: CvDocument
+    tex: str
+
+
+class CvCompileOut(BaseModel):
+    scope: str
+    version: int
+    pages: int
+    pdf_url: str
