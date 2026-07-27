@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Check, ExternalLink, Search, X } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Check, ExternalLink, History, Search, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import type { Job, JobStatus, JobsQuery } from "@/types";
@@ -12,20 +12,15 @@ import { sourceColor } from "@/components/charts/palette";
 import { Button, Card, Input, Select, Skeleton } from "@/components/ui";
 import { AddJobForm } from "@/components/AddJobForm";
 
-const SOURCES = ["itviec", "topcv", "vietnamworks", "topdev"];
-const LEVELS = ["intern", "fresher", "junior", "middle", "senior"];
-const STATUSES: JobStatus[] = [
-  "DISCOVERED",
-  "SHORTLISTED",
-  "TAILORING",
-  "REVIEW",
-  "APPROVED",
-  "SUBMITTED",
-  "FAILED",
-  "SKIPPED",
-];
-
 const EARLY = new Set<JobStatus>(["DISCOVERED", "SHORTLISTED", "SKIPPED"]);
+
+/** Crawl-time windows. `hours: null` means "any time". */
+const WINDOWS: { key: string; label: string; hours: number | null }[] = [
+  { key: "", label: "Any time", hours: null },
+  { key: "24h", label: "Last 24h", hours: 24 },
+  { key: "7d", label: "Last 7 days", hours: 24 * 7 },
+  { key: "30d", label: "Last 30 days", hours: 24 * 30 },
+];
 
 export function Jobs({ version }: { version: number }) {
   const [q, setQ] = useState("");
@@ -33,19 +28,36 @@ export function Jobs({ version }: { version: number }) {
   const [level, setLevel] = useState("");
   const [status, setStatus] = useState("");
   const [fresh, setFresh] = useState(false);
+  const [win, setWin] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  // Set by the Runs page: "show me the jobs this crawl found".
+  const [params, setParams] = useSearchParams();
+  const runId = Number(params.get("run")) || undefined;
 
-  const query: JobsQuery = useMemo(
-    () => ({
+  // Filter options are whatever is actually in the database, so the list can
+  // never drift out of step with the sources and levels really being crawled.
+  const { data: stats } = useApi(() => api.stats(), [version]);
+  const sources = Object.keys(stats?.by_source ?? {}).sort();
+  const levels = Object.keys(stats?.by_level ?? {}).sort();
+  // The API seeds by_status with every JobStatus, so this stays complete even
+  // for statuses no job currently has.
+  const statuses = Object.keys(stats?.by_status ?? {}) as JobStatus[];
+
+  const query: JobsQuery = useMemo(() => {
+    const hours = WINDOWS.find((w) => w.key === win)?.hours ?? null;
+    return {
       q: q || undefined,
       source: source || undefined,
       level: level || undefined,
       status: (status || undefined) as JobStatus | undefined,
       fresh: fresh || undefined,
+      run_id: runId,
+      crawled_after: hours ? new Date(Date.now() - hours * 3600 * 1000).toISOString() : undefined,
+      // Filtering by crawl time only reads right if the list is sorted that way.
+      order: win || runId ? "crawled" : "posted",
       limit: 200,
-    }),
-    [q, source, level, status, fresh],
-  );
+    };
+  }, [q, source, level, status, fresh, win, runId]);
 
   const { data: jobs, loading, error, refetch } = useApi(() => api.jobs(query), [query, version]);
 
@@ -59,7 +71,7 @@ export function Jobs({ version }: { version: number }) {
     }
   }
 
-  const hasFilters = q || source || level || status || fresh;
+  const hasFilters = q || source || level || status || fresh || win || runId;
 
   return (
     <div className="animate-fade-up space-y-4">
@@ -67,11 +79,29 @@ export function Jobs({ version }: { version: number }) {
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Jobs</h1>
           <p className="mt-0.5 text-sm text-ink-muted">
-            {jobs ? `${jobs.length} shown` : "Loading…"} · newest postings first
+            {jobs ? `${jobs.length} shown` : "Loading…"} ·{" "}
+            {query.order === "crawled" ? "most recently crawled first" : "newest postings first"}
           </p>
         </div>
         <AddJobForm onCreated={() => refetch()} />
       </div>
+
+      {runId && (
+        <Card className="flex items-center gap-2 px-3 py-2 text-sm">
+          <History size={14} className="text-accent" />
+          <span>
+            Showing only what <span className="font-medium">crawl #{runId}</span> discovered.
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setParams({}, { replace: true })}
+          >
+            <X size={14} /> Show all
+          </Button>
+        </Card>
+      )}
 
       {/* Filter bar */}
       <Card className="flex flex-wrap items-center gap-2 p-3">
@@ -86,7 +116,7 @@ export function Jobs({ version }: { version: number }) {
         </div>
         <Select value={source} onChange={(e) => setSource(e.target.value)}>
           <option value="">All sources</option>
-          {SOURCES.map((s) => (
+          {sources.map((s) => (
             <option key={s} value={s}>
               {titleCase(s)}
             </option>
@@ -94,7 +124,7 @@ export function Jobs({ version }: { version: number }) {
         </Select>
         <Select value={level} onChange={(e) => setLevel(e.target.value)}>
           <option value="">All levels</option>
-          {LEVELS.map((l) => (
+          {levels.map((l) => (
             <option key={l} value={l}>
               {titleCase(l)}
             </option>
@@ -102,9 +132,16 @@ export function Jobs({ version }: { version: number }) {
         </Select>
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
-          {STATUSES.map((s) => (
+          {statuses.map((s) => (
             <option key={s} value={s}>
               {titleCase(s.toLowerCase())}
+            </option>
+          ))}
+        </Select>
+        <Select value={win} onChange={(e) => setWin(e.target.value)} title="When it was crawled">
+          {WINDOWS.map((w) => (
+            <option key={w.key} value={w.key}>
+              {w.label}
             </option>
           ))}
         </Select>
@@ -127,6 +164,8 @@ export function Jobs({ version }: { version: number }) {
               setLevel("");
               setStatus("");
               setFresh(false);
+              setWin("");
+              setParams({}, { replace: true });
             }}
           >
             <X size={14} /> Clear
@@ -152,6 +191,7 @@ export function Jobs({ version }: { version: number }) {
                 <th className="px-2 py-2.5 font-medium">Match</th>
                 <th className="px-2 py-2.5 font-medium">Status</th>
                 <th className="px-2 py-2.5 font-medium">Posted</th>
+                <th className="px-2 py-2.5 font-medium">Crawled</th>
                 <th className="px-4 py-2.5 text-right font-medium">Actions</th>
               </tr>
             </thead>
@@ -207,6 +247,19 @@ function Row({
       </td>
       <td className="whitespace-nowrap px-2 py-3 font-mono text-xs tabular-nums text-ink-muted">
         {relativeTime(job.posted_at)}
+      </td>
+      <td className="whitespace-nowrap px-2 py-3 font-mono text-xs tabular-nums text-ink-muted">
+        {job.run_id ? (
+          <Link
+            to={`/jobs?run=${job.run_id}`}
+            className="hover:text-accent"
+            title={`Only jobs from crawl #${job.run_id}`}
+          >
+            {relativeTime(job.crawled_at)}
+          </Link>
+        ) : (
+          <span title="Added by hand">{relativeTime(job.crawled_at)}</span>
+        )}
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-1">

@@ -26,6 +26,8 @@ export interface Job {
   apply_channel: string | null;
   apply_target: string | null;
   crawled_at: string | null;
+  /** Which crawl discovered this job (null when added by hand). */
+  run_id: number | null;
 }
 
 export interface JobDetail extends Job {
@@ -51,6 +53,11 @@ export interface JobsQuery {
   level?: string;
   q?: string;
   fresh?: boolean;
+  /** Only jobs discovered by this crawl. */
+  run_id?: number;
+  /** ISO timestamp — only jobs crawled at or after it. */
+  crawled_after?: string;
+  order?: "posted" | "crawled";
   limit?: number;
   offset?: number;
 }
@@ -313,6 +320,8 @@ export interface RunRecord {
   started_at: string | null;
   finished_at: string | null;
   stats: Record<string, unknown>;
+  /** Jobs this crawl put in the database, counted from the jobs themselves. */
+  job_count: number;
 }
 
 export interface SourceSetting {

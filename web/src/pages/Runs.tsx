@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,7 +10,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
-import { relativeTime } from "@/lib/format";
+import { clockTime, relativeTime } from "@/lib/format";
 import { Button, Card, CardBody, CardHeader, CardTitle, Input, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { RunRecord, Task, TaskStatus } from "@/types";
@@ -200,13 +201,29 @@ function RunRow({ run }: { run: RunRecord }) {
       <span className="font-mono text-[11px] text-ink-muted">#{run.id}</span>
       <span className="font-medium">{run.kind}</span>
       {failed && <XCircle size={13} className="text-critical" />}
+      {/* The whole point of the run history: what did *this* crawl turn up. */}
+      {run.job_count > 0 && (
+        <Link
+          to={`/jobs?run=${run.id}`}
+          className="rounded-md border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] text-accent hover:bg-accent/20"
+        >
+          {run.job_count} job{run.job_count === 1 ? "" : "s"} →
+        </Link>
+      )}
       <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted">
         {Object.entries(run.stats ?? {})
           .filter(([k]) => k !== "ok")
           .map(([k, v]) => `${k}=${String(v)}`)
           .join("  ")}
       </span>
-      <span className="text-xs text-ink-muted">{relativeTime(run.finished_at ?? run.started_at)}</span>
+      {/* Absolute clock time, not "3h ago": "which of today's crawls was that?"
+          is a question relative time cannot answer. */}
+      <span
+        className="whitespace-nowrap font-mono text-xs text-ink-muted"
+        title={relativeTime(run.finished_at ?? run.started_at)}
+      >
+        {clockTime(run.started_at)}
+      </span>
     </li>
   );
 }

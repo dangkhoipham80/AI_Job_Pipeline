@@ -30,6 +30,8 @@ class JobOut(BaseModel):
     apply_channel: str | None
     apply_target: str | None
     crawled_at: datetime | None
+    # Which crawl discovered this job (null for hand-added ones).
+    run_id: int | None = None
 
 
 class JobDetailOut(JobOut):
@@ -244,6 +246,9 @@ class RunOut(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     stats: dict = {}
+    # How many jobs this crawl actually put in the database, counted from the
+    # jobs themselves rather than trusted from the run's own stats blob.
+    job_count: int = 0
 
 
 class SettingsIn(BaseModel):

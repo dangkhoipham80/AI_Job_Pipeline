@@ -22,6 +22,18 @@ export function shortDay(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** "today 14:32" / "Jul 26 09:05" — for "when exactly did that crawl run?". */
+export function clockTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const day = d.toDateString() === new Date().toDateString()
+    ? "today"
+    : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${day} ${time}`;
+}
+
 export function matchPercent(score: number): number {
   return Math.round(Math.max(0, Math.min(1, score)) * 100);
 }

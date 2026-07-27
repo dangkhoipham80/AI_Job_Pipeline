@@ -12,14 +12,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
 from jobpilot.api.schemas import RunOut, SettingsIn, TaskOut
 from jobpilot.config import get_config, save_local_config
 from jobpilot.orchestrator import crawl_body, queue
-from jobpilot.store.models import Run
+from jobpilot.store.models import Job, Run
 
 router = APIRouter(tags=["ops"], dependencies=[Depends(require_token)])
 
@@ -70,8 +70,21 @@ def list_runs(
     stmt = select(Run)
     if kind:
         stmt = stmt.where(Run.kind == kind)
-    rows = db.scalars(stmt.order_by(Run.id.desc()).limit(limit))
-    return [RunOut.model_validate(r) for r in rows]
+    rows = list(db.scalars(stmt.order_by(Run.id.desc()).limit(limit)))
+
+    counts = dict(
+        db.execute(
+            select(Job.run_id, func.count())
+            .where(Job.run_id.in_([r.id for r in rows]))
+            .group_by(Job.run_id)
+        ).all()
+    )
+    out = []
+    for row in rows:
+        item = RunOut.model_validate(row)
+        item.job_count = counts.get(row.id, 0)
+        out.append(item)
+    return out
 
 
 @router.get("/settings")

@@ -57,8 +57,10 @@ def _crawl_site(
     query: str,
     now: datetime,
     dedup_days: int,
+    run_id: int | None = None,
+    limit_override: int | None = None,
 ) -> SiteReport:
-    limit = cfg.crawl.jobs_per_site
+    limit = limit_override or cfg.crawl.jobs_per_site
     raws = scraper.crawl(query, limit=limit)
 
     kept = []
@@ -72,7 +74,7 @@ def _crawl_site(
             continue
         kept.append(nj)
 
-    stats = persist_jobs(session, kept, dedup_days=dedup_days, now=now)
+    stats = persist_jobs(session, kept, dedup_days=dedup_days, now=now, run_id=run_id)
     stats.fetched = len(raws)
     stats.filtered = filtered
     log.info(
@@ -97,10 +99,14 @@ def run_crawl(
     now: datetime | None = None,
     dedup_days: int = 14,
     record_run: bool = True,
+    limit: int | None = None,
 ) -> RunReport:
     """Crawl every scraper into ``session`` and return a :class:`RunReport`.
 
     Commits once at the end. Individual site failures never abort the batch.
+
+    ``limit`` overrides ``cfg.crawl.jobs_per_site`` for this run only — useful
+    for a one-off deep sweep without editing the config.
     """
     now = now or vn_now()
     query = query if query is not None else default_query(cfg)
@@ -114,7 +120,9 @@ def run_crawl(
     report = RunReport(run_id=run.id if run else None)
     for scraper in scrapers:
         try:
-            report.sites.append(_crawl_site(scraper, cfg, session, query, now, dedup_days))
+            report.sites.append(
+                _crawl_site(scraper, cfg, session, query, now, dedup_days, report.run_id, limit)
+            )
         except Exception as exc:
             log.exception("[%s] crawl failed", scraper.source)
             report.sites.append(

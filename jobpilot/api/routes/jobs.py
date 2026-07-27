@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
@@ -48,6 +48,9 @@ def list_jobs(
     level: str | None = None,
     q: str | None = Query(None, description="search title/company"),
     fresh: bool = False,
+    run_id: int | None = Query(None, description="only jobs discovered by this crawl"),
+    crawled_after: datetime | None = Query(None, description="crawled at or after this time"),
+    order: str = Query("posted", pattern="^(posted|crawled)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> list[Job]:
@@ -64,8 +67,16 @@ def list_jobs(
     if fresh:
         cutoff = vn_now() - timedelta(hours=get_config().crawl.fresh_hours)
         stmt = stmt.where(Job.posted_at >= cutoff)
-    # Freshness first (newest postings on top), then most recently crawled.
-    stmt = stmt.order_by(Job.posted_at.desc(), Job.crawled_at.desc()).limit(limit).offset(offset)
+    if run_id is not None:
+        stmt = stmt.where(Job.run_id == run_id)
+    if crawled_after is not None:
+        stmt = stmt.where(Job.crawled_at >= crawled_after)
+
+    # Default: freshest posting first. "crawled" answers a different question —
+    # what did the agent turn up most recently — so it is a separate ordering
+    # rather than a tweak of the same one.
+    key = Job.crawled_at if order == "crawled" else Job.posted_at
+    stmt = stmt.order_by(key.desc(), Job.crawled_at.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt))
 
 

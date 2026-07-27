@@ -71,7 +71,14 @@ class Job(Base):
     apply_target: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full normalized Job payload (JD markdown, skills, raw_html_ref, …).
     payload: Mapped[dict] = mapped_column(JSONType, default=dict)
-    crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    crawled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    # The crawl that first discovered this job. Not updated on re-crawl: a job
+    # belongs to the run that found it, not to every run that has seen it.
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{SCHEMA}.runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     applications: Mapped[list[Application]] = relationship(
         back_populates="job", cascade="all, delete-orphan"

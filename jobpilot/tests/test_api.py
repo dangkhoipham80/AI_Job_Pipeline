@@ -163,3 +163,72 @@ def test_websocket_rejects_bad_token(client):
     with pytest.raises(Exception):
         with client.websocket_connect("/ws?token=wrong") as ws:
             ws.receive_json()
+
+
+def test_filter_jobs_by_run_id(client, session_factory):
+    """A crawl's jobs are reachable from the run that found them."""
+    from jobpilot.store.models import Run
+
+    with session_factory() as s:
+        run = Run(kind="crawl", stats={})
+        s.add(run)
+        s.flush()
+        s.add(Job(id="linkedin:9", source="linkedin", title="BE", company="Z", run_id=run.id))
+        run_id = run.id
+        s.commit()
+
+    r = client.get("/jobs", params={"run_id": run_id}, headers=_auth(client))
+    assert [j["id"] for j in r.json()] == ["linkedin:9"]
+    assert r.json()[0]["run_id"] == run_id
+
+    # The seeded jobs belong to no run, so they must not leak into the view.
+    assert client.get("/jobs", params={"run_id": run_id + 999}, headers=_auth(client)).json() == []
+
+
+def test_filter_jobs_by_crawled_after(client, session_factory):
+    """The crawl-time window is a floor, not a fuzzy match."""
+    from datetime import timedelta
+
+    from jobpilot.timeutil import vn_now
+
+    now = vn_now()
+    with session_factory() as s:
+        s.add(
+            Job(
+                id="itviec:old",
+                source="itviec",
+                title="Old",
+                company="A",
+                crawled_at=now - timedelta(days=10),
+            )
+        )
+        s.add(Job(id="itviec:new", source="itviec", title="New", company="B", crawled_at=now))
+        s.commit()
+
+    cutoff = (now - timedelta(days=1)).isoformat()
+    ids = {
+        j["id"]
+        for j in client.get("/jobs", params={"crawled_after": cutoff}, headers=_auth(client)).json()
+    }
+    assert "itviec:new" in ids
+    assert "itviec:old" not in ids
+
+
+def test_runs_report_their_job_count(client, session_factory):
+    """job_count is counted from the jobs, not read out of the run's stats blob."""
+    from jobpilot.store.models import Run
+
+    with session_factory() as s:
+        run = Run(kind="crawl", stats={"inserted": 99})  # a lying stats blob
+        s.add(run)
+        s.flush()
+        s.add_all(
+            [
+                Job(id=f"linkedin:{i}", source="linkedin", title="X", company="Y", run_id=run.id)
+                for i in range(3)
+            ]
+        )
+        s.commit()
+
+    runs = client.get("/runs", headers=_auth(client)).json()
+    assert runs[0]["job_count"] == 3

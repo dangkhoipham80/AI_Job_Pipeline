@@ -48,8 +48,9 @@ class CrawlStats:
         }
 
 
-def _new_job(nj: NormalizedJob) -> Job:
+def _new_job(nj: NormalizedJob, run_id: int | None = None) -> Job:
     return Job(
+        run_id=run_id,
         id=nj.id,
         source=nj.source,
         url=nj.url,
@@ -88,6 +89,7 @@ def persist_jobs(
     *,
     dedup_days: int = 14,
     now: datetime | None = None,
+    run_id: int | None = None,
 ) -> CrawlStats:
     """Insert/refresh ``jobs``; skip cross-source dupes seen within ``dedup_days``.
 
@@ -115,7 +117,7 @@ def persist_jobs(
         if nj.dedup_key in seen_keys:
             stats.duplicates += 1
             continue
-        session.add(_new_job(nj))
+        session.add(_new_job(nj, run_id=run_id))
         seen_keys.add(nj.dedup_key)
         stats.inserted += 1
         if nj.fresh:

@@ -158,11 +158,10 @@ def cmd_crawl(args: argparse.Namespace) -> int:
         return 1
 
     query = args.query or default_query(cfg)
-    print(
-        f"Crawling {[s.source for s in scrapers]}  query={query!r}  limit={cfg.crawl.jobs_per_site}"
-    )
+    limit = args.limit or cfg.crawl.jobs_per_site
+    print(f"Crawling {[s.source for s in scrapers]}  query={query!r}  limit={limit}")
     with session_scope() as db:
-        report = run_crawl(scrapers, cfg, db, query=query)
+        report = run_crawl(scrapers, cfg, db, query=query, limit=args.limit)
 
     for site in report.sites:
         s = site.stats
@@ -384,6 +383,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_crawl.add_argument("--query", default=None, help="search query (default: from config stacks)")
     p_crawl.add_argument(
         "--no-robots", action="store_true", help="skip robots.txt checks (debug only)"
+    )
+    p_crawl.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="jobs per site for this run (default: config crawl.jobs_per_site)",
     )
     p_crawl.set_defaults(func=cmd_crawl)
     p_tailor = sub.add_parser("tailor", help="tailor the Master CV to a job (Phase 5)")
