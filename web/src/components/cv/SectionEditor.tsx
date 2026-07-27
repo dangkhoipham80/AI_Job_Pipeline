@@ -48,7 +48,11 @@ export function SectionEditor({
   disableUp: boolean;
   disableDown: boolean;
 }) {
-  const [open, setOpen] = useState(true);
+  // Collapsed by default: six expanded sections make the page ~10,000px tall,
+  // which hides the one thing this screen is for — seeing the CV's shape. The
+  // collapsed header carries the title, type and item count, so you can tell
+  // where to click without opening anything.
+  const [open, setOpen] = useState(false);
 
   return (
     <Card className={cn("group", !section.enabled && "opacity-55")}>

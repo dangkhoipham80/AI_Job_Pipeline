@@ -58,8 +58,12 @@ docker run -u $UID:$GID --rm -v $PWD:/work csmith/awesome-cv-builder
 
 ### JobPilot (khi đã scaffold — xem cấu trúc ở PLAN.md §8)
 ```bash
-docker-compose up -d postgres       # dựng Postgres local
-alembic upgrade head                # migrate DB
+# --- Postgres: dùng bản cài sẵn trên máy (PostgreSQL 17 + pgAdmin 4) ---
+# Tạo DB một lần:  psql -U postgres -c "CREATE DATABASE jobpilot;"
+# rồi đặt trong .env:  DATABASE_URL=postgresql+psycopg://postgres:<pass>@127.0.0.1:5432/jobpilot
+# (Hoặc `docker-compose up -d postgres` nếu muốn chạy Postgres trong Docker.)
+alembic upgrade head                # migrate DB — tạo schema `jobpilot`
+python scripts/seed_demo.py         # (tùy chọn) nạp dữ liệu demo cho dashboard
 uvicorn jobpilot.api.main:app --reload   # API backend (REST + WebSocket) tại :8000
 cd web && npm run dev               # Web Dashboard (Vite) tại :5173  ← control plane chính
 python -m jobpilot.cli crawl        # crawl 3 site → Postgres (hoặc bấm Crawl trên dashboard)
@@ -115,7 +119,9 @@ make dev
 - **Tailor/apply vẫn chạy đồng bộ** trong request (~30–60s). `TaskQueue` đã có sẵn và generic — chuyển sang background chủ yếu là việc của frontend (poll/WS thay vì await response).
 - **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco), diff giữa 2 version bất kỳ. `tex_snapshot` đã lưu mỗi version nên diff làm sau rất nhẹ.
 - **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.
-- **Chưa verify được** (thiếu credential/dependency, không phải thiếu code): gọi Claude thật (cần `ANTHROPIC_API_KEY`), gửi lên Slack workspace thật (cần Slack app + 3 token), `prefill_with_browser` (cần Playwright), `alembic upgrade` lên Postgres thật (mới chỉ verify DDL render đúng).
+- **Chưa verify được** (thiếu credential, không phải thiếu code): gọi Claude thật (cần `ANTHROPIC_API_KEY`), gửi lên Slack workspace thật (cần Slack app + 3 token).
+- **Đã verify trên môi trường thật**: `alembic upgrade head` chạy sạch 3 migration lên **PostgreSQL 17 local** (schema `jobpilot`, GIN index, enum `job_status` đầy đủ); toàn bộ 8 trang web chạy trên Postgres thật, không lỗi console; Compile PDF từ CV Studio và tailor→PDF đều qua Docker LaTeX thật.
+- **Lưu ý khi chụp/screenshot UI**: headless Chrome **không có PDF viewer**, nên khung preview PDF sẽ trống (`net::ERR_ABORTED` trên blob URL). Đó là giới hạn của headless chứ không phải bug — chạy `headless=False` để kiểm tra thật.
 - **Gmail OAuth** chưa làm — dùng `method: smtp` (Gmail app password chạy được).
 
 ## Quyết định đã chốt (không tự đổi nếu user không yêu cầu)
