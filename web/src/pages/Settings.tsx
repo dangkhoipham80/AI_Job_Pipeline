@@ -141,7 +141,7 @@ export function Settings() {
                     ),
                   })
                 }
-                className="h-4 w-4 accent-[var(--accent)]"
+                className="h-4 w-4 accent-[rgb(var(--accent))]"
               />
               <span className="font-medium">{source.key}</span>
               <span className="font-mono text-[11px] text-ink-muted">tier {source.tier}</span>
@@ -382,7 +382,7 @@ function Toggle({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 accent-[var(--accent)]"
+        className="h-4 w-4 accent-[rgb(var(--accent))]"
       />
       <span className="font-medium">{label}</span>
       {hint && <span className="text-xs text-ink-muted">{hint}</span>}

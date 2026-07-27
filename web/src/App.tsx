@@ -8,6 +8,7 @@ import { CvStudio } from "@/pages/CvStudio";
 import { Runs } from "@/pages/Runs";
 import { Settings } from "@/pages/Settings";
 import { Dashboard } from "@/pages/Dashboard";
+import { Guide } from "@/pages/Guide";
 import { Jobs } from "@/pages/Jobs";
 import { JobDetail } from "@/pages/JobDetail";
 
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/cv/:scope" element={<CvStudio version={version} />} />
           <Route path="/applications" element={<Applications version={version} />} />
           <Route path="/runs" element={<Runs version={version} />} />
+          <Route path="/guide" element={<Guide version={version} />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </Layout>

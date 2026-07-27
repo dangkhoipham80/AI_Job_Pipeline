@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   Activity,
   Briefcase,
+  BookOpen,
   FileText,
   LayoutDashboard,
   Moon,
@@ -21,6 +22,7 @@ const NAV = [
   { to: "/applications", label: "Applications", icon: Send, end: false },
   { to: "/runs", label: "Runs", icon: Activity, end: false },
   { to: "/settings", label: "Settings", icon: Settings2, end: false },
+  { to: "/guide", label: "Guide", icon: BookOpen, end: false },
 ];
 
 export function Layout({ live, children }: { live: boolean; children: ReactNode }) {
@@ -47,7 +49,7 @@ export function Layout({ live, children }: { live: boolean; children: ReactNode 
                 cn(
                   "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   isActive
-                    ? "bg-accent/12 text-ink [box-shadow:inset_2px_0_0_var(--accent)]"
+                    ? "bg-accent/12 text-ink [box-shadow:inset_2px_0_0_rgb(var(--accent))]"
                     : "text-ink-muted hover:bg-surface-2 hover:text-ink",
                 )
               }

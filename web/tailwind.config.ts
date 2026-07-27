@@ -1,6 +1,8 @@
 import type { Config } from "tailwindcss";
 
-// Colors resolve to CSS custom properties (defined in src/index.css) so the
+// Colors resolve to CSS custom properties holding RGB *channels* (see
+// src/index.css), wrapped so `<alpha-value>` works — that is what makes
+// `bg-accent/10` and friends render at all. They live in one place so the
 // light/dark values swap in one place. "Flight deck" palette: warm-neutral
 // surfaces, a marigold accent (runway light), aqua live indicator.
 export default {
@@ -9,22 +11,22 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: "var(--bg)",
-        surface: "var(--surface)",
-        "surface-2": "var(--surface-2)",
-        border: "var(--border)",
+        bg: "rgb(var(--bg) / <alpha-value>)",
+        surface: "rgb(var(--surface) / <alpha-value>)",
+        "surface-2": "rgb(var(--surface-2) / <alpha-value>)",
+        border: "rgb(var(--border) / <alpha-value>)",
         ink: {
-          DEFAULT: "var(--ink)",
-          muted: "var(--ink-muted)",
+          DEFAULT: "rgb(var(--ink) / <alpha-value>)",
+          muted: "rgb(var(--ink-muted) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "var(--accent)",
-          hover: "var(--accent-hover)",
-          ink: "var(--accent-ink)",
+          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
+          hover: "rgb(var(--accent-hover) / <alpha-value>)",
+          ink: "rgb(var(--accent-ink) / <alpha-value>)",
         },
-        live: "var(--live)",
-        good: "var(--good)",
-        critical: "var(--critical)",
+        live: "rgb(var(--live) / <alpha-value>)",
+        good: "rgb(var(--good) / <alpha-value>)",
+        critical: "rgb(var(--critical) / <alpha-value>)",
       },
       fontFamily: {
         display: ['"Space Grotesk"', "system-ui", "sans-serif"],

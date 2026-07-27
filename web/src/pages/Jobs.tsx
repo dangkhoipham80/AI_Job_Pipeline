@@ -26,13 +26,23 @@ export function Jobs({ version }: { version: number }) {
   const [q, setQ] = useState("");
   const [source, setSource] = useState("");
   const [level, setLevel] = useState("");
-  const [status, setStatus] = useState("");
   const [fresh, setFresh] = useState(false);
   const [win, setWin] = useState("");
   const [pending, setPending] = useState<string | null>(null);
-  // Set by the Runs page: "show me the jobs this crawl found".
+
+  // `run` and `status` live in the URL, not in state: both are arrived at from
+  // somewhere else — the Runs page ("what did this crawl find?") and the Guide
+  // ("3 jobs are waiting on you") — and a link has to be able to say which.
   const [params, setParams] = useSearchParams();
   const runId = Number(params.get("run")) || undefined;
+  const status = params.get("status") ?? "";
+
+  function setParam(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  }
 
   // Filter options are whatever is actually in the database, so the list can
   // never drift out of step with the sources and levels really being crawled.
@@ -40,8 +50,11 @@ export function Jobs({ version }: { version: number }) {
   const sources = Object.keys(stats?.by_source ?? {}).sort();
   const levels = Object.keys(stats?.by_level ?? {}).sort();
   // The API seeds by_status with every JobStatus, so this stays complete even
-  // for statuses no job currently has.
+  // for statuses no job currently has. The URL's own status is folded in
+  // regardless: while stats is still loading the <select> would otherwise show
+  // blank while the filter *is* applied, which reads as a broken link.
   const statuses = Object.keys(stats?.by_status ?? {}) as JobStatus[];
+  if (status && !statuses.includes(status as JobStatus)) statuses.unshift(status as JobStatus);
 
   const query: JobsQuery = useMemo(() => {
     const hours = WINDOWS.find((w) => w.key === win)?.hours ?? null;
@@ -130,7 +143,7 @@ export function Jobs({ version }: { version: number }) {
             </option>
           ))}
         </Select>
-        <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <Select value={status} onChange={(e) => setParam("status", e.target.value)}>
           <option value="">All statuses</option>
           {statuses.map((s) => (
             <option key={s} value={s}>
@@ -162,7 +175,6 @@ export function Jobs({ version }: { version: number }) {
               setQ("");
               setSource("");
               setLevel("");
-              setStatus("");
               setFresh(false);
               setWin("");
               setParams({}, { replace: true });
