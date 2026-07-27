@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Plus, Save } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
@@ -23,7 +24,9 @@ const NEW_SECTION: Record<CvSectionType, () => CvSection> = {
  * stay local until Save, which appends a new version; Compile renders that
  * version to PDF through the Docker LaTeX builder.
  */
-export function CvStudio({ scope = "master", version: wsVersion }: { scope?: string; version: number }) {
+export function CvStudio({ version: wsVersion }: { version: number }) {
+  // /cv edits the Master CV; /cv/<job id> edits that job's tailored fork.
+  const { scope = "master" } = useParams();
   const { data, loading, error, refetch } = useApi(() => api.cv(scope), [scope]);
 
   const [draft, setDraft] = useState<CvDocument | null>(null);

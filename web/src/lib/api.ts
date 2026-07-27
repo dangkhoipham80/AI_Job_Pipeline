@@ -7,7 +7,9 @@ import type {
   Job,
   JobDetail,
   JobsQuery,
+  ReviewData,
   Stats,
+  TailorResult,
 } from "@/types";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -74,6 +76,24 @@ export const api = {
   /** Fetch the compiled PDF as an object URL (the <iframe> can't send the token). */
   cvPdfUrl: async (scope: string): Promise<string> => {
     const res = await fetch(`${BASE}${cvPath(scope)}/pdf`, { headers: { "X-API-Token": TOKEN } });
+    if (!res.ok) throw new ApiError(res.status, "PDF not available");
+    return URL.createObjectURL(await res.blob());
+  },
+
+  /* Tailor + CV Review (Phase 5). Tailoring is slow — a Claude call plus a
+     Docker LaTeX build — so callers should show progress, not a spinner-less wait. */
+  tailor: (id: string) => req<TailorResult>(`${jobPath(id)}/tailor`, { method: "POST" }),
+  editCv: (id: string, instruction: string) =>
+    req<TailorResult>(`${jobPath(id)}/edit`, {
+      method: "POST",
+      body: JSON.stringify({ instruction }),
+    }),
+  review: (id: string) => req<ReviewData>(`${jobPath(id)}/review`),
+  approve: (id: string) => req<JobDetail>(`${jobPath(id)}/approve`, { method: "POST" }),
+  reject: (id: string) => req<JobDetail>(`${jobPath(id)}/reject`, { method: "POST" }),
+
+  tailoredPdfUrl: async (id: string): Promise<string> => {
+    const res = await fetch(`${BASE}${jobPath(id)}/cv`, { headers: { "X-API-Token": TOKEN } });
     if (!res.ok) throw new ApiError(res.status, "PDF not available");
     return URL.createObjectURL(await res.blob());
   },

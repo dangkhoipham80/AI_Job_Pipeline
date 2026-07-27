@@ -64,9 +64,13 @@ def save_version(
     scope: str,
     doc: CvDocument,
     author: str = "user",
+    meta: dict | None = None,
     commit: bool = True,
 ) -> CvVersion:
-    """Append a new version. ``author`` distinguishes hand edits from agent tailoring."""
+    """Append a new version. ``author`` distinguishes hand edits from agent tailoring.
+
+    ``meta`` carries the tailor output (plan, gaps, diff) for agent versions.
+    """
     kind, job_id = resolve_scope(scope)
     previous = latest_version(db, scope)
     row = CvVersion(
@@ -77,6 +81,7 @@ def save_version(
         tex_snapshot=render_tex_snapshot(doc),
         theme=doc.theme.model_dump(mode="json"),
         author=author,
+        meta=meta or {},
     )
     db.add(row)
     if commit:

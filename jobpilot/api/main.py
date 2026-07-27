@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from jobpilot import __version__
-from jobpilot.api.routes import cv, jobs, stats
+from jobpilot.api.routes import cv, jobs, review, stats
 from jobpilot.api.ws import websocket_endpoint
 
 # Vite dev server (Web Dashboard, Phase 4) origins.
@@ -35,6 +35,9 @@ def create_app() -> FastAPI:
     def health() -> dict:
         return {"status": "ok", "version": __version__}
 
+    # review first: jobs' GET /{job_id:path} is greedy and would shadow
+    # /jobs/{id}/review and /jobs/{id}/cv.
+    app.include_router(review.router)
     app.include_router(jobs.router)
     app.include_router(stats.router)
     app.include_router(cv.router)

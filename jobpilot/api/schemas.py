@@ -90,3 +90,41 @@ class CvCompileOut(BaseModel):
     version: int
     pages: int
     pdf_url: str
+
+
+# --------------------------------------------------------------------------- #
+# Tailor + CV Review (Phase 5)
+# --------------------------------------------------------------------------- #
+class TailorIn(BaseModel):
+    instruction: str
+
+
+class TailorOut(BaseModel):
+    """Result of one tailor round. ``plan``/``diff`` are passed through as-is so
+    the UI and the stored ``cv_versions.meta`` always agree."""
+
+    job_id: str
+    version: int
+    round: int
+    attempts: int
+    pages: int | None
+    match_score: float
+    plan: dict
+    diff: dict
+
+
+class ReviewOut(BaseModel):
+    """What the CV Review page reads. All tailor fields are null before the first
+    round, so the page can render an untailored job without special-casing."""
+
+    job_id: str
+    version: int
+    author: str | None
+    created_at: datetime | None
+    match_score: float | None = None
+    pages: int | None = None
+    round: int = 0
+    instruction: str | None = None
+    plan: dict | None = None
+    diff: dict | None = None
+    gaps: list[dict] = []

@@ -151,6 +151,43 @@ def cmd_crawl(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tailor(args: argparse.Namespace) -> int:
+    """Tailor the Master CV to one job and report the plan (Phase 5)."""
+    from jobpilot.store.db import session_scope
+    from jobpilot.tailor import service
+    from jobpilot.tailor.build import BuildError
+    from jobpilot.tailor.engine import TailorError, default_engine
+    from jobpilot.tailor.guard import GuardrailViolation
+
+    with session_scope() as db:
+        try:
+            outcome = service.tailor_job(
+                db,
+                args.job_id,
+                default_engine(),
+                instruction=args.instruction,
+                compile_pdf=not args.no_build,
+            )
+        except service.TailorRefused as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return 1
+        except GuardrailViolation as exc:
+            print(f"GUARDRAIL: {exc}", file=sys.stderr)
+            return 1
+        except (TailorError, BuildError) as exc:
+            print(f"FAILED: {exc}", file=sys.stderr)
+            return 1
+
+        plan = outcome.plan
+        pages = "n/a" if outcome.pages is None else f"{outcome.pages} page(s)"
+        print(f"{args.job_id}: v{outcome.version}  match={plan.match_score:.0%}  {pages}")
+        for change in plan.changes:
+            print(f"  ~ [{change.section}] {change.what}  ({change.reason})")
+        for gap in plan.gaps():
+            print(f"  ! gap ({gap.kind}): {gap.text}")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -203,6 +240,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-robots", action="store_true", help="skip robots.txt checks (debug only)"
     )
     p_crawl.set_defaults(func=cmd_crawl)
+    p_tailor = sub.add_parser("tailor", help="tailor the Master CV to a job (Phase 5)")
+    p_tailor.add_argument("job_id", help="job id, e.g. itviec:2156537")
+    p_tailor.add_argument(
+        "--instruction", default=None, help="revision instruction for an edit round"
+    )
+    p_tailor.add_argument(
+        "--no-build", action="store_true", help="produce the plan without building the PDF"
+    )
+    p_tailor.set_defaults(func=cmd_tailor)
+
     p_serve = sub.add_parser("serve", help="run FastAPI backend (Phase 2)")
     p_serve.add_argument("--host", default="127.0.0.1", help="bind host (localhost only)")
     p_serve.add_argument("--port", type=int, default=8000)

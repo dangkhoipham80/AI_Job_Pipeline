@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Building2, Check, ExternalLink, MapPin, Wallet } from "lucide-react";
+import { ArrowLeft, Building2, Check, ExternalLink, MapPin, Sparkles, Wallet } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import type { JobStatus } from "@/types";
@@ -12,6 +12,9 @@ import { sourceColor } from "@/components/charts/palette";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Skeleton } from "@/components/ui";
 
 const EARLY = new Set<JobStatus>(["DISCOVERED", "SHORTLISTED", "SKIPPED"]);
+// Statuses from which the CV Review page is worth opening (matches
+// tailor/service.py TAILORABLE, plus APPROVED so you can re-read what you sent).
+const TAILORABLE = new Set<JobStatus>(["SHORTLISTED", "TAILORING", "REVIEW", "APPROVED", "FAILED"]);
 
 export function JobDetail({ version }: { version: number }) {
   const { id = "" } = useParams();
@@ -92,6 +95,14 @@ export function JobDetail({ version }: { version: number }) {
                       <Button size="sm" variant="ghost" onClick={() => act("skip")} disabled={pending}>
                         Skip
                       </Button>
+                    )}
+                    {TAILORABLE.has(job.status) && (
+                      <Link to={`/jobs/${encodeURIComponent(job.id)}/review`}>
+                        <Button size="sm" variant={job.status === "REVIEW" ? "primary" : "outline"}>
+                          <Sparkles size={14} />
+                          {job.status === "REVIEW" ? "Review CV" : "Tailor CV"}
+                        </Button>
+                      </Link>
                     )}
                     <a
                       href={job.url}

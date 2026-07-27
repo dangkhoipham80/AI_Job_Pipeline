@@ -132,4 +132,7 @@ class CvVersion(Base):
     tex_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     theme: Mapped[dict] = mapped_column(JSONType, default=dict)
     author: Mapped[str] = mapped_column(String(16), default="user")  # user|agent
+    # Tailor output for agent versions: match_score, requirements, gaps, changes,
+    # diff (Phase 5). Empty for hand edits made in CV Studio.
+    meta: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

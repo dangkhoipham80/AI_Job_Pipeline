@@ -145,6 +145,76 @@ export interface CvCompileResult {
   pdf_url: string;
 }
 
+/* Tailor + CV Review (Phase 5) — mirrors jobpilot/tailor/{schema,diff}.py ---- */
+
+export type RequirementKind = "must_have" | "nice_to_have" | "soft";
+export type RequirementStatus = "HAVE" | "PARTIAL" | "MISSING";
+
+export interface TailorRequirement {
+  text: string;
+  kind: RequirementKind;
+  status: RequirementStatus;
+  evidence: string;
+}
+
+export interface TailorChange {
+  section: string;
+  what: string;
+  reason: string;
+}
+
+export interface TailorPlan {
+  plan_version: number;
+  match_score: number;
+  requirements: TailorRequirement[];
+  summary: string;
+  section_order: string[];
+  changes: TailorChange[];
+}
+
+export type DiffStatus = "rewritten" | "hidden" | "reordered" | "trimmed" | "unchanged";
+
+export interface SectionDiff {
+  key: string;
+  title: string;
+  status: DiffStatus;
+  notes: string[];
+  before: string | null;
+  after: string | null;
+}
+
+export interface CvDiff {
+  order_changed: boolean;
+  order_before: string[];
+  order_after: string[];
+  sections: SectionDiff[];
+}
+
+export interface TailorResult {
+  job_id: string;
+  version: number;
+  round: number;
+  attempts: number;
+  pages: number | null;
+  match_score: number;
+  plan: TailorPlan;
+  diff: CvDiff;
+}
+
+export interface ReviewData {
+  job_id: string;
+  version: number;
+  author: "user" | "agent" | null;
+  created_at: string | null;
+  match_score: number | null;
+  pages: number | null;
+  round: number;
+  instruction: string | null;
+  plan: TailorPlan | null;
+  diff: CvDiff | null;
+  gaps: TailorRequirement[];
+}
+
 // Pipeline order for the funnel (PLAN.md §4 state machine).
 export const FUNNEL_ORDER: JobStatus[] = [
   "DISCOVERED",
