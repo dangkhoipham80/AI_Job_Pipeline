@@ -240,6 +240,54 @@ def cmd_confirm_submit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    """Crawl, report, and stop — optionally on a loop (PLAN.md §9 'cron nhẹ').
+
+    A plain loop rather than a scheduler dependency: it is one less thing to
+    install, and `--every` is easy to reason about when it wakes at 3am.
+    """
+    import time
+
+    from jobpilot.orchestrator import crawl_body
+
+    def once() -> int:
+        try:
+            result = crawl_body(query=args.query, respect_robots=not args.no_robots)(print)
+        except Exception as exc:
+            print(f"CRAWL FAILED: {exc}", file=sys.stderr)
+            return 1
+        for site in result["sites"]:
+            status = "ok " if site["ok"] else "FAIL"
+            detail = (
+                f"error={site['error']}"
+                if not site["ok"]
+                else (
+                    f"fetched={site['fetched']} new={site['inserted']} "
+                    f"upd={site['updated']} dup={site['duplicates']} fresh={site['fresh']}"
+                )
+            )
+            print(f"  [{status}] {site['source']:14s} {detail}")
+        t = result["totals"]
+        print(f"Total: new={t['inserted']} updated={t['updated']} fresh={t['fresh']}")
+        # Individual site failures are normal and don't fail the batch, but a run
+        # where nothing worked should be visible to whatever scheduled it.
+        sites = result["sites"]
+        return 1 if sites and not any(s["ok"] for s in sites) else 0
+
+    if not args.every:
+        return once()
+
+    print(f"Looping every {args.every} minutes — Ctrl-C to stop.")
+    try:
+        while True:
+            once()
+            print(f"-- sleeping {args.every}m --")
+            time.sleep(args.every * 60)
+    except KeyboardInterrupt:
+        print("\nstopped")
+        return 0
+
+
 def cmd_slack(args: argparse.Namespace) -> int:
     """Run the Slack companion app (Phase 7). Needs the API already running."""
     from jobpilot.slack.app import SlackNotConfigured, run
@@ -267,14 +315,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
         reload=args.reload,
     )
     return 0
-
-
-def _not_yet(phase: str):
-    def _run(_: argparse.Namespace) -> int:
-        print(f"Not implemented yet — arrives in {phase}. See PLAN.md §9.")
-        return 0
-
-    return _run
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -340,9 +380,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_slack.add_argument("--web", default="http://localhost:5173", help="dashboard base URL")
     p_slack.set_defaults(func=cmd_slack)
 
-    sub.add_parser("run", help="crawl -> notify -> await (Phase 8)").set_defaults(
-        func=_not_yet("Phase 8")
-    )
+    p_run = sub.add_parser("run", help="crawl once, or on a loop (Phase 8)")
+    p_run.add_argument("--query", default=None, help="search query (default: from config stacks)")
+    p_run.add_argument("--no-robots", action="store_true", help="skip robots.txt (debug only)")
+    p_run.add_argument("--every", type=int, default=0, help="repeat every N minutes")
+    p_run.set_defaults(func=cmd_run)
     return parser
 
 

@@ -1,6 +1,16 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { Briefcase, FileText, LayoutDashboard, Moon, Plane, Send, Sun } from "lucide-react";
+import {
+  Activity,
+  Briefcase,
+  FileText,
+  LayoutDashboard,
+  Moon,
+  Plane,
+  Send,
+  Settings2,
+  Sun,
+} from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +19,8 @@ const NAV = [
   { to: "/jobs", label: "Jobs", icon: Briefcase, end: false },
   { to: "/cv", label: "CV Studio", icon: FileText, end: false },
   { to: "/applications", label: "Applications", icon: Send, end: false },
+  { to: "/runs", label: "Runs", icon: Activity, end: false },
+  { to: "/settings", label: "Settings", icon: Settings2, end: false },
 ];
 
 export function Layout({ live, children }: { live: boolean; children: ReactNode }) {

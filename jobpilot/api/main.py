@@ -6,12 +6,16 @@ Binds to localhost only (single-user, local control plane — PLAN.md §5.6).
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from jobpilot import __version__
-from jobpilot.api.routes import apply, cv, jobs, review, stats
-from jobpilot.api.ws import websocket_endpoint
+from jobpilot.api.routes import apply, cv, jobs, ops, review, stats
+from jobpilot.api.ws import manager, websocket_endpoint
+from jobpilot.orchestrator import queue
 
 # Vite dev server (Web Dashboard, Phase 4) origins.
 ALLOWED_ORIGINS = [
@@ -20,8 +24,16 @@ ALLOWED_ORIGINS = [
 ]
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Worker threads publish task progress by hopping back onto this loop.
+    queue.bind(asyncio.get_running_loop(), manager.broadcast)
+    yield
+    queue.shutdown(wait=False)
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="JobPilot API", version=__version__)
+    app = FastAPI(title="JobPilot API", version=__version__, lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -43,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(stats.router)
     app.include_router(cv.router)
+    app.include_router(ops.router)
     app.add_api_websocket_route("/ws", websocket_endpoint)
     return app
 

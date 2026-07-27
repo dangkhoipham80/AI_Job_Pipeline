@@ -275,6 +275,76 @@ export interface ApplySettings {
   portal_prefill: boolean;
 }
 
+/* Orchestration (Phase 8) — mirrors jobpilot/orchestrator.py ----------------- */
+
+export type TaskStatus = "queued" | "running" | "done" | "failed";
+
+export interface CrawlSiteResult {
+  source: string;
+  ok: boolean;
+  error: string | null;
+  fetched: number;
+  inserted: number;
+  updated: number;
+  duplicates: number;
+  filtered: number;
+  fresh: number;
+}
+
+export interface Task {
+  id: string;
+  kind: string;
+  label: string;
+  job_id: string | null;
+  status: TaskStatus;
+  progress: string;
+  result: { sites?: CrawlSiteResult[]; totals?: Record<string, number>; query?: string };
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface RunRecord {
+  id: number;
+  kind: string;
+  started_at: string | null;
+  finished_at: string | null;
+  stats: Record<string, unknown>;
+}
+
+export interface SourceSetting {
+  key: string;
+  tier: number;
+  enabled: boolean;
+}
+
+export interface Settings {
+  app: { timezone: string; edit_max_rounds: number };
+  crawl: {
+    jobs_per_site: number;
+    fresh_hours: number;
+    match_score_min: number;
+    stacks: string[];
+    exclude_keywords: string[];
+    rate_limit_seconds: [number, number];
+  };
+  sources: SourceSetting[];
+  apply: {
+    email: {
+      enabled: boolean;
+      dry_run: boolean;
+      test_recipient: string;
+      from_addr: string;
+      from_name: string;
+      method: string;
+      subject_template: string;
+    };
+    portal_prefill: boolean;
+  };
+  cv: { master_dir: string; out_dir: string; docker_image: string; theme: string };
+}
+
 // Pipeline order for the funnel (PLAN.md §4 state machine).
 export const FUNNEL_ORDER: JobStatus[] = [
   "DISCOVERED",

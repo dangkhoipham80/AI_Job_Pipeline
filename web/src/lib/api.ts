@@ -11,8 +11,11 @@ import type {
   JobDetail,
   JobsQuery,
   ReviewData,
+  RunRecord,
+  Settings,
   Stats,
   TailorResult,
+  Task,
 } from "@/types";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -111,6 +114,16 @@ export const api = {
   applications: (result?: string) =>
     req<Application[]>(`/applications${qs({ result })}`),
   applySettings: () => req<ApplySettings>("/applications/settings"),
+
+  /* Orchestration (Phase 8). Crawling can't answer inside a request, so it
+     returns a task and progress arrives over the WebSocket. */
+  startCrawl: (query?: string) => req<Task>(`/crawl${qs({ query })}`, { method: "POST" }),
+  tasks: (kind?: string) => req<Task[]>(`/tasks${qs({ kind })}`),
+  task: (id: string) => req<Task>(`/tasks/${id}`),
+  runs: (kind?: string) => req<RunRecord[]>(`/runs${qs({ kind })}`),
+  settings: () => req<Settings>("/settings"),
+  saveSettings: (patch: Partial<Settings>) =>
+    req<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) }),
 
   tailoredPdfUrl: async (id: string): Promise<string> => {
     const res = await fetch(`${BASE}${jobPath(id)}/cv`, { headers: { "X-API-Token": TOKEN } });

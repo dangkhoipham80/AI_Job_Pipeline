@@ -23,6 +23,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parent
 CONFIG_PATH = PACKAGE_DIR / "config.yaml"
+# Overlay written by the Settings page. config.yaml is heavily commented and
+# those comments are load-bearing documentation (the email safety gates most of
+# all), and YAML round-tripping would strip them — so edits land in a separate,
+# gitignored file that is merged on top instead.
+LOCAL_CONFIG_PATH = PACKAGE_DIR / "config.local.yaml"
 
 
 # --------------------------------------------------------------------------- #
@@ -124,11 +129,49 @@ class Secrets(BaseSettings):
     smtp_password: str = ""
 
 
+def deep_merge(base: dict, overlay: dict) -> dict:
+    """Overlay wins, but only for the keys it actually sets."""
+    out = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _read_yaml(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
 @lru_cache
 def get_config(path: Path | None = None) -> Config:
     p = path or CONFIG_PATH
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    data = deep_merge(_read_yaml(p), _read_yaml(LOCAL_CONFIG_PATH))
     return Config.model_validate(data)
+
+
+def save_local_config(patch: dict) -> Config:
+    """Merge ``patch`` into the overlay, validate the result, then persist it.
+
+    Validating before writing means a bad Settings save is rejected rather than
+    leaving the app unable to load its own config on next start.
+    """
+    merged_overlay = deep_merge(_read_yaml(LOCAL_CONFIG_PATH), patch)
+    Config.model_validate(deep_merge(_read_yaml(CONFIG_PATH), merged_overlay))
+
+    header = (
+        "# Written by the JobPilot Settings page — merged on top of config.yaml.\n"
+        "# Safe to delete: that just restores the defaults in config.yaml.\n"
+    )
+    LOCAL_CONFIG_PATH.write_text(
+        header + yaml.safe_dump(merged_overlay, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    get_config.cache_clear()
+    return get_config()
 
 
 @lru_cache

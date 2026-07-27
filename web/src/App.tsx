@@ -5,6 +5,8 @@ import { useWebSocket, type WsMessage } from "@/hooks/useWebSocket";
 import { Applications } from "@/pages/Applications";
 import { CvReview } from "@/pages/CvReview";
 import { CvStudio } from "@/pages/CvStudio";
+import { Runs } from "@/pages/Runs";
+import { Settings } from "@/pages/Settings";
 import { Dashboard } from "@/pages/Dashboard";
 import { Jobs } from "@/pages/Jobs";
 import { JobDetail } from "@/pages/JobDetail";
@@ -14,7 +16,7 @@ export default function App() {
   // refetch (PLAN.md §5.5 — WS keeps the dashboard in sync with the DB).
   const [version, setVersion] = useState(0);
   const { connected } = useWebSocket((msg: WsMessage) => {
-    if (["job_updated", "cv_updated", "tailor_done", "apply_done"].includes(msg.type)) {
+    if (["job_updated", "cv_updated", "tailor_done", "apply_done", "task_updated"].includes(msg.type)) {
       setVersion((v) => v + 1);
     }
   });
@@ -30,6 +32,8 @@ export default function App() {
           <Route path="/cv" element={<CvStudio version={version} />} />
           <Route path="/cv/:scope" element={<CvStudio version={version} />} />
           <Route path="/applications" element={<Applications version={version} />} />
+          <Route path="/runs" element={<Runs version={version} />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </Layout>
     </BrowserRouter>

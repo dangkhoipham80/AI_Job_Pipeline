@@ -173,6 +173,48 @@ class ApplicationOut(BaseModel):
         )
 
 
+# --------------------------------------------------------------------------- #
+# Orchestration (Phase 8)
+# --------------------------------------------------------------------------- #
+class TaskOut(BaseModel):
+    """A queued/running/finished background task."""
+
+    id: str
+    kind: str
+    label: str
+    job_id: str | None = None
+    status: str  # queued | running | done | failed
+    progress: str = ""
+    result: dict = {}
+    error: str | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class RunOut(BaseModel):
+    """One persisted run from the ``runs`` table."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    started_at: datetime | None
+    finished_at: datetime | None
+    stats: dict = {}
+
+
+class SettingsIn(BaseModel):
+    """Partial settings patch. Only the sections present are touched, so the
+    Settings page can save one card without clobbering the rest."""
+
+    app: dict | None = None
+    crawl: dict | None = None
+    apply: dict | None = None
+    cv: dict | None = None
+    sources: list[dict] | None = None
+
+
 class ReviewOut(BaseModel):
     """What the CV Review page reads. All tailor fields are null before the first
     round, so the page can render an untailored job without special-casing."""
