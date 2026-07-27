@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from jobpilot.cv.schema import CvDocument, ParagraphSection
-from jobpilot.cv.store import load_seed
+from jobpilot.cv.sample import sample_document
 from jobpilot.tailor.apply import apply_plan
 from jobpilot.tailor.diff import diff_documents
 from jobpilot.tailor.guard import (
@@ -20,7 +20,7 @@ from jobpilot.tailor.schema import EntryPlan, Requirement, SectionPlan, TailorPl
 
 @pytest.fixture
 def master() -> CvDocument:
-    return load_seed()
+    return sample_document()
 
 
 def _plan(**kw) -> TailorPlan:
@@ -148,7 +148,7 @@ def test_apply_does_not_mutate_master(master):
 def test_apply_reorders_and_drops_entries(master):
     out = apply_plan(master, _plan(sections=[SectionPlan(key="projects", entry_order=[2, 0])]))
     projects = next(s for s in out.sections if s.key == "projects")
-    assert [e.title.split(" --")[0] for e in projects.entries] == ["Food Forum", "Slide AI"]
+    assert [e.title.split(" --")[0] for e in projects.entries] == ["Roundtable", "Lumen"]
 
 
 def test_apply_reorders_tech_stack_within_an_entry(master):
@@ -166,7 +166,7 @@ def test_apply_entry_edits_survive_a_section_reorder(master):
         entries=[EntryPlan(section_key="projects", entry_index=2, tech_stack_order=[1, 0])],
     )
     projects = next(s for s in apply_plan(master, plan).sections if s.key == "projects")
-    assert projects.entries[0].title.startswith("Food Forum")
+    assert projects.entries[0].title.startswith("Roundtable")
     assert projects.entries[0].tech_stack[:2] == ["Firebase", "FastAPI"]
 
 
@@ -279,7 +279,7 @@ def test_match_score_is_clamped_rather_than_rejected():
 def test_outline_indices_match_the_plan_address_space(master):
     outline = render_master(master)
     assert "SECTION experience" in outline
-    assert "entry[0] FPT Software" in outline
+    assert "entry[0] Example Software" in outline
     assert "tech[0] Java" in outline
     assert "item[0] Languages & Frameworks:" in outline
 

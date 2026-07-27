@@ -19,7 +19,7 @@ from jobpilot.cv.schema import (
     ProjectsSection,
     Theme,
 )
-from jobpilot.cv.store import load_seed
+from jobpilot.cv.sample import sample_document
 
 
 # --------------------------------------------------------------------------- #
@@ -190,10 +190,11 @@ def test_awesome_cv_template_is_listed():
 
 
 # --------------------------------------------------------------------------- #
-# The imported Master CV (seed) — the whole point of the phase.
+# A full document end to end. Uses the fictional cv/sample.py CV — the app ships
+# no CV content of its own, since personal data belongs in the database.
 # --------------------------------------------------------------------------- #
-def test_seed_loads_and_renders_all_six_sections():
-    doc = load_seed()
+def test_a_full_cv_renders_all_six_sections():
+    doc = sample_document()
     files = render_document(doc)
     assert set(files) == {
         "cv.tex",
@@ -206,10 +207,10 @@ def test_seed_loads_and_renders_all_six_sections():
     }
 
 
-def test_seed_matches_the_original_master_cv_content():
-    """Spot-check lines that must survive the .tex -> JSON import verbatim."""
-    files = render_document(load_seed())
-    assert r"\name{\textbf{KHOI}}{\tech{PHAM}}" in files["cv.tex"]
+def test_full_cv_renders_the_awesome_cv_macros():
+    """Spot-check the macro shapes a real Awesome-CV build depends on."""
+    files = render_document(sample_document())
+    assert r"\name{\textbf{ALEX}}{\tech{EXAMPLE}}" in files["cv.tex"]
     assert (
         r"\item {Wrote \textbf{unit tests} with \tech{JUnit}, achieving "
         r"\textbf{over 80\% code coverage} measured by \textbf{JaCoCo}.}"
@@ -222,6 +223,6 @@ def test_seed_matches_the_original_master_cv_content():
 
 
 def test_tex_snapshot_covers_every_rendered_file():
-    snapshot = render_tex_snapshot(load_seed())
-    for path in render_document(load_seed()):
+    snapshot = render_tex_snapshot(sample_document())
+    for path in render_document(sample_document()):
         assert f"% ===== {path} =====" in snapshot

@@ -21,7 +21,7 @@ LETTER = CoverLetter(
     greeting="Dear Hiring Team at ACME Corp,",
     paragraphs=[
         "I am applying for the Backend Engineer role. I build RESTful APIs with Java and "
-        "Spring Boot at FPT Software.",
+        "Spring Boot at Example Software.",
         "I wrote unit tests with JUnit and deployed through Jenkins pipelines.",
     ],
     closing="Best regards,",
@@ -209,15 +209,16 @@ def test_channel_resolution(db):
 
 def test_contact_fields_come_from_the_cv_header(db):
     fields = contact_fields(cv_store.get_document(db, "master"))
-    assert fields["email"] == "dangkhoipham80@gmail.com"
-    assert fields["github"].endswith("/dangkhoipham80")
-    assert fields["full_name"] == "Khoi Pham"
+    assert fields["email"] == "alex@example.com"
+    assert fields["github"].endswith("/alex-example")
+    assert fields["full_name"] == "Alex Example"
 
 
 def test_names_are_cased_for_a_web_form_not_for_latex(db):
-    """The CV header holds KHOI/PHAM for the header styling; a form wants Khoi Pham."""
+    """The CV header holds ALEX/EXAMPLE in caps for the LaTeX header styling;
+    a web form wants Alex Example."""
     fields = contact_fields(cv_store.get_document(db, "master"))
-    assert fields["first_name"] == "Khoi" and fields["last_name"] == "Pham"
+    assert fields["first_name"] == "Alex" and fields["last_name"] == "Example"
 
 
 def test_form_label_matching():

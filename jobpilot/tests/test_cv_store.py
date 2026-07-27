@@ -31,7 +31,7 @@ def test_resolve_scope_maps_master_and_job_ids():
 def test_get_document_seeds_master_on_first_use(db):
     assert store.latest_version(db, "master") is None
     doc = store.get_document(db, "master")
-    assert doc.header.first_name == "KHOI"
+    assert doc.header.first_name == "ALEX"
     assert store.latest_version(db, "master").version == 1
 
 
@@ -85,7 +85,7 @@ def test_tailored_scopes_have_independent_history(db):
     store.save_version(db, "itviec:2", _doc("tailored-b"))
     assert store.get_document(db, "itviec:1").sections[0].text == "tailored-a"
     assert store.get_document(db, "itviec:2").sections[0].text == "tailored-b"
-    assert store.get_document(db, "master").header.first_name == "KHOI"
+    assert store.get_document(db, "master").header.first_name == "ALEX"
     # Each fresh scope starts its own numbering.
     assert store.latest_version(db, "itviec:2").version == 1
 

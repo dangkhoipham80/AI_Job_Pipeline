@@ -43,7 +43,7 @@ def test_cv_requires_token(client):
 def test_get_master_auto_seeds(client):
     body = _master(client)
     assert body["version"] == 1
-    assert body["document"]["header"]["first_name"] == "KHOI"
+    assert body["document"]["header"]["first_name"] == "ALEX"
     assert [s["key"] for s in body["document"]["sections"]] == [
         "summary",
         "education",

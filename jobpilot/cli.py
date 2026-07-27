@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from jobpilot import __version__
@@ -82,6 +83,37 @@ def cmd_cv(args: argparse.Namespace) -> int:
         if args.cv_command == "seed":
             row = store.ensure_master(db)
             print(f"Master CV at version {row.version} (author={row.author})")
+            return 0
+
+        if args.cv_command == "import":
+            # The only way personal data enters the app. After this it lives in
+            # the database and is read through the API.
+            try:
+                doc = store.read_document(Path(args.file))
+            except (OSError, ValueError) as exc:
+                print(f"ERROR: could not read {args.file}: {exc}", file=sys.stderr)
+                return 1
+            row = store.save_version(db, args.scope, doc, author="user")
+            name = f"{doc.header.first_name} {doc.header.last_name}".strip() or "(no name)"
+            print(f"Imported into {args.scope} as v{row.version}: {name}")
+            return 0
+
+        if args.cv_command == "export":
+            try:
+                doc = store.get_document(db, args.scope)
+            except store.ScopeNotFound as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            payload = doc.model_dump(mode="json")
+            payload = {
+                "_comment": "Exported from the JobPilot database. Contains personal data — "
+                "keep it out of git (*.local.json is gitignored).",
+                **payload,
+            }
+            Path(args.file).write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            print(f"Exported {args.scope} to {args.file}")
             return 0
 
         if args.cv_command == "versions":
@@ -328,9 +360,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("dir", nargs="?", default=None, help="work dir (default: repo root)")
     p_build.add_argument("--entry", default="cv.tex", help="LaTeX entry file")
     p_build.set_defaults(func=cmd_build)
-    p_cv = sub.add_parser("cv", help="CV Studio: seed/render/build/versions (Phase 4.5)")
+    p_cv = sub.add_parser("cv", help="CV Studio: seed/import/export/render/build (Phase 4.5)")
     cv_sub = p_cv.add_subparsers(dest="cv_command", required=True)
-    cv_sub.add_parser("seed", help="import the Master CV seed into cv_versions (idempotent)")
+    cv_sub.add_parser("seed", help="create an empty Master CV if there isn't one (idempotent)")
+
+    p_import = cv_sub.add_parser("import", help="load a CV JSON file into the database")
+    p_import.add_argument("file", help="path to a CV document JSON")
+    p_import.add_argument("--scope", default="master", help="'master' or a job id")
+
+    p_export = cv_sub.add_parser("export", help="write a CV from the database to JSON (backup)")
+    p_export.add_argument("file", help="destination path — use *.local.json to stay gitignored")
+    p_export.add_argument("--scope", default="master", help="'master' or a job id")
     for name, helptext in (
         ("render", "write the structured CV out as .tex"),
         ("build", "render + compile to PDF via Docker"),

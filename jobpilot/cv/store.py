@@ -18,10 +18,10 @@ from sqlalchemy.orm import Session
 
 from jobpilot.cv.render import render_tex_snapshot
 from jobpilot.cv.schema import CvDocument
+from jobpilot.cv.skeleton import empty_document
 from jobpilot.store.models import CvVersion
 
 MASTER_SCOPE = "master"
-SEED_PATH = Path(__file__).resolve().parent / "master_seed.json"
 
 
 class ScopeNotFound(LookupError):
@@ -35,9 +35,14 @@ def resolve_scope(scope: str) -> tuple[str, str | None]:
     return "tailored", scope
 
 
-def load_seed() -> CvDocument:
-    """The Master CV imported once from the original ``resume/*.tex`` (PLAN.md §9)."""
-    return CvDocument.model_validate(json.loads(SEED_PATH.read_text(encoding="utf-8")))
+def read_document(path: Path) -> CvDocument:
+    """Load a CV document from a JSON file (for ``jobpilot cv import``).
+
+    Top-level keys starting with ``_`` are dropped, so an exported file can carry
+    a ``_comment`` — JSON has no comment syntax.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return CvDocument.model_validate({k: v for k, v in data.items() if not k.startswith("_")})
 
 
 def _scoped(scope: str):
@@ -93,11 +98,16 @@ def save_version(
 
 
 def ensure_master(db: Session) -> CvVersion:
-    """Seed the Master CV from ``master_seed.json`` on first use; idempotent."""
+    """Create an empty Master CV on first use; idempotent.
+
+    Empty, not pre-filled: the repository holds no CV content, so there is
+    nothing to seed from. You fill it in CV Studio (which reads and writes it
+    through the API) or import an existing document with ``jobpilot cv import``.
+    """
     existing = latest_version(db, MASTER_SCOPE)
     if existing is not None:
         return existing
-    return save_version(db, MASTER_SCOPE, load_seed(), author="user")
+    return save_version(db, MASTER_SCOPE, empty_document(), author="user")
 
 
 def get_document(db: Session, scope: str) -> CvDocument:

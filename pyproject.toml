@@ -40,8 +40,9 @@ build-backend = "setuptools.build_meta"
 include = ["jobpilot*"]
 
 [tool.setuptools.package-data]
-# Ship config.yaml, the Jinja2 CV templates, and the Master CV seed in the wheel.
-jobpilot = ["config.yaml", "cv/templates/*/*.j2", "cv/master_seed.json"]
+# Ship config.yaml and the Jinja2 CV templates. No CV content: personal data
+# lives in the database, never in the package.
+jobpilot = ["config.yaml", "cv/templates/*/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["jobpilot/tests"]

@@ -14,6 +14,16 @@ from sqlalchemy.pool import StaticPool
 from jobpilot.store.db import Base, make_engine
 
 
+@pytest.fixture(autouse=True)
+def _seed_with_sample_cv(monkeypatch):
+    """The app bootstraps an *empty* CV — it ships no content. Tests need a
+    realistic one to assert against, so ``ensure_master`` is pointed at the
+    fictional ``cv/sample.py`` document for the whole suite."""
+    from jobpilot.cv.sample import sample_document
+
+    monkeypatch.setattr("jobpilot.cv.store.empty_document", sample_document)
+
+
 @pytest.fixture
 def engine():
     eng = make_engine(

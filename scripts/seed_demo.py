@@ -70,7 +70,7 @@ JOBS = [
     (
         "topcv:884120",
         "Fresher Backend Engineer",
-        "FPT Software",
+        "Northwind Software",
         "Ho Chi Minh City",
         "Up to 15 trieu",
         "fresher",
@@ -78,7 +78,7 @@ JOBS = [
         30,
         "topcv",
         "email",
-        "tuyendung@fpt.example.com",
+        "careers@northwind.example.com",
         0.71,
     ),
     (
@@ -253,7 +253,7 @@ PLAN = TailorPlan(
             text="Java, Spring Boot",
             kind="must_have",
             status="HAVE",
-            evidence="experience: FPT Software",
+            evidence="experience: Example Software",
         ),
         Requirement(
             text="RESTful API, microservices",
@@ -341,14 +341,14 @@ if not db.query(Application).count():
                 cv_pdf_path="out/cv/topcv_884120/cv.pdf",
                 meta={
                     "email": {
-                        "to": "khoi.test@example.com",
-                        "intended_to": "tuyendung@fpt.example.com",
+                        "to": "alex.test@example.com",
+                        "intended_to": "careers@northwind.example.com",
                         "redirected": True,
-                        "subject": "Application for Fresher Backend Engineer - Khoi Pham",
-                        "from": "khoi@example.com",
+                        "subject": "Application for Fresher Backend Engineer - Alex Example",
+                        "from": "alex@example.com",
                         "attachments": ["cv.pdf"],
                         "dry_run": False,
-                        "body_preview": "Dear Hiring Team at FPT Software,",
+                        "body_preview": "Dear Hiring Team at Northwind Software,",
                     }
                 },
             ),
@@ -362,8 +362,8 @@ if not db.query(Application).count():
                         "to": "careers@momo.example.com",
                         "intended_to": "careers@momo.example.com",
                         "redirected": False,
-                        "subject": "Application for Backend Developer - Khoi Pham",
-                        "from": "khoi@example.com",
+                        "subject": "Application for Backend Developer - Alex Example",
+                        "from": "alex@example.com",
                         "attachments": ["cv.pdf"],
                         "dry_run": True,
                         "body_preview": "Dear Hiring Team at MoMo,",
@@ -381,9 +381,9 @@ if not db.query(Application).count():
                         "prefilled": False,
                         "note": "Nothing was submitted. Open the link, paste the fields, attach the CV.",
                         "fields": {
-                            "full_name": "Khoi Pham",
-                            "email": "dangkhoipham80@gmail.com",
-                            "phone": "(+84) 795 335 577",
+                            "full_name": "Alex Example",
+                            "email": "alex@example.com",
+                            "phone": "(+84) 900 000 000",
                         },
                     }
                 },

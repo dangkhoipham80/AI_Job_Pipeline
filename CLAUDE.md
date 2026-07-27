@@ -5,7 +5,7 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 ## Repo là gì
 
 Hai lớp:
-1. **CV Template (đang có)** — CV LaTeX theo [Awesome-CV](https://github.com/posquit0/Awesome-CV), build bằng Docker. `cv.tex` là entry, nội dung tách trong `resume/*.tex`. Đây là **Master CV** (nguồn sự thật) của Khoi Pham — Fresher/Junior Backend (Java Spring Boot), FPT University, tốt nghiệp 04/2026.
+1. **CV Template** — bộ khung LaTeX [Awesome-CV](https://github.com/posquit0/Awesome-CV) (`awesome-cv.cls`, `fontawesome.sty`, `fonts/`), build bằng Docker. Repo **chỉ chứa khung**, không chứa CV nào.
 2. **JobPilot (đang xây)** — agent crawl job (ITviec/TopCV/VietnamWorks) → quản lý qua **Web Dashboard local** (control plane chính; Slack là kênh phụ) → tailor CV → duyệt/sửa → apply hybrid. Stack: FastAPI + React + PostgreSQL. Xem `PLAN.md` (kiến trúc) và `SKILL.md` (logic tailor).
 
 ## Đọc trước khi làm
@@ -18,9 +18,10 @@ Hai lớp:
 
 1. **Truthfulness**: khi tailor CV, KHÔNG bịa skill/kinh nghiệm/metric. Chỉ nhấn mạnh/diễn đạt lại dữ kiện có thật. Chi tiết: `SKILL.md §0`.
 2. **Human-in-the-loop**: mọi hành động gửi ra ngoài cần user Approve, trừ kênh **email** đã bật rõ. **Không** auto-apply LinkedIn. **Không** scrape LinkedIn.
-3. **Không ghi đè Master CV**: bản tailored sinh ra ở `out/<job_id>/`. `resume/` giữ nguyên là Master.
-4. **Tôn trọng ToS/robots.txt/rate-limit** khi crawl. Site nào fail thì log + chạy tiếp, không retry vô hạn.
-5. **Secrets**: mọi token (Slack, Claude API, email) đặt trong `.env` (đã gitignore). Không log, không commit token, không commit `jobpilot.db`.
+3. **Không commit thông tin cá nhân**: Master CV (tên, email, SĐT, học vấn, kinh nghiệm…) sống trong bảng `cv_versions` của Postgres và đi ra/vào qua API (`GET/PUT /cv/{scope}`). Repo không chứa CV nào — DB mới thì `ensure_master()` tạo **CV rỗng** (`cv/skeleton.py`), user tự điền trong CV Studio hoặc `jobpilot cv import <file.json>`. `cv/sample.py` là CV **hư cấu** chỉ dùng cho test + demo, app không bao giờ seed từ đó.
+4. **Không ghi đè Master CV**: bản tailored sinh ra ở `out/cv/<scope>/`, Master trong DB giữ nguyên.
+5. **Tôn trọng ToS/robots.txt/rate-limit** khi crawl. Site nào fail thì log + chạy tiếp, không retry vô hạn.
+6. **Secrets**: mọi token (Slack, Claude API, email) đặt trong `.env` (đã gitignore). Không log, không commit token, không commit `jobpilot.db`.
 
 ## Quy trình triển khai (phase-by-phase + Codex Review)
 
@@ -67,7 +68,9 @@ python scripts/seed_demo.py         # (tùy chọn) nạp dữ liệu demo cho d
 uvicorn jobpilot.api.main:app --reload   # API backend (REST + WebSocket) tại :8000
 cd web && npm run dev               # Web Dashboard (Vite) tại :5173  ← control plane chính
 python -m jobpilot.cli crawl        # crawl 3 site → Postgres (hoặc bấm Crawl trên dashboard)
-python -m jobpilot.cli cv seed      # import Master CV JSON vào cv_versions (idempotent)
+python -m jobpilot.cli cv seed      # tạo Master CV rỗng nếu chưa có (idempotent)
+python -m jobpilot.cli cv import my-cv.local.json   # nạp CV có sẵn vào DB
+python -m jobpilot.cli cv export my-cv.local.json   # backup CV từ DB ra file (gitignored)
 python -m jobpilot.cli cv build     # render JSON → .tex → PDF ở out/cv/master/
 python -m jobpilot.cli tailor <job_id>            # tailor CV cho 1 job (cần ANTHROPIC_API_KEY)
 python -m jobpilot.cli tailor <job_id> --no-build # chỉ ra plan, không build PDF
@@ -84,13 +87,13 @@ make dev
 
 - **Ngôn ngữ code/comment**: English. Docs cho user (PLAN/SKILL) có thể tiếng Việt.
 - **Python**: 3.11+, type hints, `ruff`/`black` nếu có. Mỗi scraper kế thừa `crawler/base.py:BaseScraper`.
-- **LaTeX**: giữ cú pháp Awesome-CV; dùng macro có sẵn `\tech{}`, `\techfe{}`, `\cvsimpleentry`, `\cvitems`. Đổi màu chủ đạo tại `cv.tex` (`\colorlet{awesome}{...}`).
+- **LaTeX**: giữ cú pháp Awesome-CV; dùng macro có sẵn `\tech{}`, `\techfe{}`, `\cvsimpleentry`, `\cvitems`. Đổi màu chủ đạo trong CV Studio (`theme.color`), không sửa `.tex` tay.
 - **Job schema**: mọi scraper phải normalize về `Job` schema chung (PLAN.md §3.1) để dedup theo `id = "<source>:<native_id>"`.
 - **State**: **Postgres là nguồn sự thật duy nhất**; mọi thay đổi trạng thái đi qua API backend (Web và Slack cùng gọi API → không lệch state). Orchestrator idempotent (chạy lại không hỏng). Đẩy update realtime qua WebSocket (web) + update message (Slack).
 - **Web/Frontend**: React + Vite + TS + TailwindCSS + shadcn/ui; charts theo skill `dataviz`, UI theo skill `frontend-design` (palette nhất quán light/dark, có cá tính riêng). Bind `localhost`, không expose ra ngoài. DB migrations bằng Alembic — đổi schema phải tạo migration, không sửa tay.
 - **CV inline markup**: text trong `CvDocument` **không bao giờ** chứa LaTeX thô. Dùng subset markdown: `**bold**` → `\textbf`, `` `x` `` → `\tech`, `~x~` → `\techfe`, `[label](url)` → `\hreficon`. Mọi thứ còn lại được escape (`jobpilot/cv/latex.py`). Agent tailor (Phase 5) phải xuất đúng subset này.
 - **CV data flow (quan trọng)**: nguồn sự thật của nội dung CV là **JSON structured** (CV Studio + agent tailor cùng dùng) → serialize ra `.tex` qua Jinja2 → Docker build PDF. Không sửa `.tex` tailored bằng tay ngoài luồng này (trừ raw-mode trong Studio, có cảnh báo mất round-trip). Mọi lần save = 1 row `cv_versions` (author = user|agent).
-- **Verify thay đổi runtime**: sau khi sửa scraper/tailor/apply, chạy thử flow tương ứng và quan sát output thật, đừng chỉ dựa vào test. Sau khi sửa `resume/*.tex` phải build lại PDF để chắc không lỗi LaTeX.
+- **Verify thay đổi runtime**: sau khi sửa scraper/tailor/apply, chạy thử flow tương ứng và quan sát output thật, đừng chỉ dựa vào test. Sau khi sửa template Jinja2 hoặc `cv/latex.py` phải build lại PDF để chắc không lỗi LaTeX.
 
 ## Thêm một site crawl mới
 
@@ -101,7 +104,7 @@ make dev
 
 ## Trạng thái hiện tại
 
-- ✅ Master CV LaTeX hoạt động (`cv.tex` + `resume/*.tex`, build Docker).
+- ✅ Khung LaTeX Awesome-CV hoạt động (`awesome-cv.cls` + `fonts/`, build Docker). Nội dung CV nằm trong DB, không trong repo.
 - ✅ Docs nền tảng: `PLAN.md`, `SKILL.md`, `CLAUDE.md`.
 - ✅ **Phase 0** — scaffold `jobpilot/` + `web/` (placeholder) + `docker-compose` + `pyproject` + `Makefile` + `config.yaml`/`.env.example` + config loader + CLI + smoke tests.
 - ✅ **Phase 1** — Python build wrapper (`tailor/build.py` + `cli build`, Docker LaTeX, page-count qua pypdf) + cải thiện Skills của Master CV (ATS, giữ 1 trang) + untrack LaTeX aux cũ.

@@ -39,6 +39,15 @@ web/.vite/
 npm-debug.log*
 yarn-error.log*
 
+# ---- Your CV (personal data — lives in the database, never in git) ----
+# The app ships no CV content: `cv_versions` is the source of truth and CV
+# Studio reads/writes it through the API. These are your local working copies.
+/cv.tex
+/cv.pdf
+/resume/
+/resume.tex
+/resume.png
+
 # ---- LaTeX build artifacts (generated CVs) ----
 out/**/*.aux
 out/**/*.log
