@@ -215,6 +215,66 @@ export interface ReviewData {
   gaps: TailorRequirement[];
 }
 
+/* Apply + Applications board (Phase 6) — mirrors jobpilot/apply/ -------------- */
+
+export type ApplyChannel = "email" | "portal" | "external";
+// A 200 from /apply does not mean anything was sent — read the result.
+export type ApplyResult = "success" | "dry_run" | "awaiting_user" | "failed";
+
+export interface EmailSummary {
+  to: string;
+  intended_to: string | null;
+  redirected: boolean;
+  subject: string;
+  from: string;
+  attachments: string[];
+  dry_run: boolean;
+  body_preview: string;
+}
+
+export interface HandoffSummary {
+  url: string;
+  cv_path: string | null;
+  fields: Record<string, string>;
+  prefilled: boolean;
+  note: string;
+}
+
+export interface ApplyOutcome {
+  job_id: string;
+  channel: ApplyChannel;
+  result: ApplyResult;
+  detail: string;
+  application_id: number | null;
+  email: EmailSummary | null;
+  handoff: HandoffSummary | null;
+}
+
+export interface Application {
+  id: number;
+  job_id: string;
+  job_title: string;
+  company: string;
+  job_status: JobStatus;
+  channel: ApplyChannel | null;
+  result: ApplyResult | null;
+  error_msg: string | null;
+  submitted_at: string | null;
+  created_at: string | null;
+  cv_pdf_path: string | null;
+  apply_target: string | null;
+  meta: { email?: EmailSummary; handoff?: HandoffSummary };
+}
+
+export interface ApplySettings {
+  email_enabled: boolean;
+  email_dry_run: boolean;
+  email_test_recipient: string;
+  email_from: string;
+  email_blocker: string;
+  portal_prefill: boolean;
+}
+
 // Pipeline order for the funnel (PLAN.md §4 state machine).
 export const FUNNEL_ORDER: JobStatus[] = [
   "DISCOVERED",

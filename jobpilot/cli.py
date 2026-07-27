@@ -188,6 +188,58 @@ def cmd_tailor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apply(args: argparse.Namespace) -> int:
+    """Dispatch an approved job to its channel (Phase 6)."""
+    from jobpilot.apply import dispatcher
+    from jobpilot.apply.letter import default_letter_engine
+    from jobpilot.apply.portal import prefill_with_browser
+    from jobpilot.store.db import session_scope
+
+    cfg = get_config()
+    engine = None
+    if not args.no_letter and get_secrets().anthropic_api_key:
+        engine = default_letter_engine()
+
+    with session_scope() as db:
+        try:
+            outcome = dispatcher.apply_job(db, args.job_id, engine)
+        except dispatcher.ApplyRefused as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return 1
+
+    print(f"{args.job_id}: channel={outcome.channel} result={outcome.result}")
+    print(f"  {outcome.detail}")
+    if outcome.result == "dry_run":
+        gates = cfg.apply.email
+        print(
+            f"  gates: enabled={gates.enabled} dry_run={gates.dry_run} "
+            f"test_recipient={gates.test_recipient or '(none)'}"
+        )
+    if outcome.handoff:
+        print(f"  open: {outcome.handoff.url}")
+        print(f"  CV  : {outcome.handoff.cv_path}")
+        for key, value in outcome.handoff.fields.items():
+            print(f"    {key:<12} {value}")
+        if args.open_portal:
+            prefill_with_browser(outcome.handoff)
+        print("  when you've submitted it, run: jobpilot confirm-submit " + args.job_id)
+    return 0 if outcome.result != "failed" else 1
+
+
+def cmd_confirm_submit(args: argparse.Namespace) -> int:
+    from jobpilot.apply import dispatcher
+    from jobpilot.store.db import session_scope
+
+    with session_scope() as db:
+        try:
+            job = dispatcher.confirm_submit(db, args.job_id)
+        except dispatcher.ApplyRefused as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return 1
+        print(f"{args.job_id}: {job.status.value}")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -249,6 +301,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-build", action="store_true", help="produce the plan without building the PDF"
     )
     p_tailor.set_defaults(func=cmd_tailor)
+
+    p_apply = sub.add_parser("apply", help="dispatch an approved job to its channel (Phase 6)")
+    p_apply.add_argument("job_id")
+    p_apply.add_argument("--no-letter", action="store_true", help="skip the cover letter")
+    p_apply.add_argument(
+        "--open-portal",
+        action="store_true",
+        help="for portal jobs, open a visible browser and pre-fill what it can (never submits)",
+    )
+    p_apply.set_defaults(func=cmd_apply)
+
+    p_confirm = sub.add_parser("confirm-submit", help="mark a portal/external job as submitted")
+    p_confirm.add_argument("job_id")
+    p_confirm.set_defaults(func=cmd_confirm_submit)
 
     p_serve = sub.add_parser("serve", help="run FastAPI backend (Phase 2)")
     p_serve.add_argument("--host", default="127.0.0.1", help="bind host (localhost only)")

@@ -1,4 +1,7 @@
 import type {
+  Application,
+  ApplyOutcome,
+  ApplySettings,
   CvCompileResult,
   CvDocument,
   CvDocumentResponse,
@@ -91,6 +94,23 @@ export const api = {
   review: (id: string) => req<ReviewData>(`${jobPath(id)}/review`),
   approve: (id: string) => req<JobDetail>(`${jobPath(id)}/approve`, { method: "POST" }),
   reject: (id: string) => req<JobDetail>(`${jobPath(id)}/reject`, { method: "POST" }),
+
+  /* Apply (Phase 6). `result` on the response says what actually happened —
+     a 200 can still mean "nothing was sent" (dry run) or "your turn" (portal). */
+  applyJob: (id: string, coverLetter?: boolean) =>
+    req<ApplyOutcome>(`${jobPath(id)}/apply`, {
+      method: "POST",
+      body: JSON.stringify({ cover_letter: coverLetter ?? null }),
+    }),
+  confirmSubmit: (id: string) => req<JobDetail>(`${jobPath(id)}/confirm-submit`, { method: "POST" }),
+  reportFailure: (id: string, reason: string) =>
+    req<JobDetail>(`${jobPath(id)}/report-failure`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  applications: (result?: string) =>
+    req<Application[]>(`/applications${qs({ result })}`),
+  applySettings: () => req<ApplySettings>("/applications/settings"),
 
   tailoredPdfUrl: async (id: string): Promise<string> => {
     const res = await fetch(`${BASE}${jobPath(id)}/cv`, { headers: { "X-API-Token": TOKEN } });

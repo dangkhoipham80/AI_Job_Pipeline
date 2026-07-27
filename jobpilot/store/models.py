@@ -88,8 +88,12 @@ class Application(Base):
     cover_letter_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     channel: Mapped[str | None] = mapped_column(String(32), nullable=True)  # email|portal|external
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    result: Mapped[str | None] = mapped_column(String(32), nullable=True)  # success|failed
+    # success | failed | dry_run | awaiting_user
+    result: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Channel-specific detail: the email summary, or the portal handoff package.
+    meta: Mapped[dict] = mapped_column(JSONType, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     job: Mapped[Job] = relationship(back_populates="applications")
 

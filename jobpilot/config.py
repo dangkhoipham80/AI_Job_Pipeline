@@ -49,14 +49,34 @@ class SourceCfg(BaseModel):
 
 
 class EmailCfg(BaseModel):
+    """Email is the one channel allowed to send without a second confirmation
+    (CLAUDE.md rule 2), so it is gated three ways: off by default, dry-run by
+    default, and able to redirect every message to your own inbox until you
+    trust it."""
+
     enabled: bool = False
     method: Literal["gmail", "smtp"] = "gmail"
     from_addr: str = ""
+    from_name: str = ""
+    # Build and record the message, but never hand it to a mail server.
+    dry_run: bool = True
+    # Deliver to this address instead of the employer — "test email mình trước"
+    # (PLAN.md §9 Phase 6). Empty means mail really goes to the job's contact.
+    test_recipient: str = ""
+    subject_template: str = "Application for {title} — {name}"
 
 
 class ApplyCfg(BaseModel):
     email: EmailCfg = Field(default_factory=EmailCfg)
     portal_prefill: bool = True
+
+    def email_blocker(self) -> str:
+        """Why the email channel may not run, or '' if it may."""
+        if not self.email.enabled:
+            return "email apply is disabled (apply.email.enabled)"
+        if not self.email.from_addr:
+            return "apply.email.from_addr is not set"
+        return ""
 
 
 class CvCfg(BaseModel):

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { useWebSocket, type WsMessage } from "@/hooks/useWebSocket";
+import { Applications } from "@/pages/Applications";
 import { CvReview } from "@/pages/CvReview";
 import { CvStudio } from "@/pages/CvStudio";
 import { Dashboard } from "@/pages/Dashboard";
@@ -13,7 +14,7 @@ export default function App() {
   // refetch (PLAN.md §5.5 — WS keeps the dashboard in sync with the DB).
   const [version, setVersion] = useState(0);
   const { connected } = useWebSocket((msg: WsMessage) => {
-    if (["job_updated", "cv_updated", "tailor_done"].includes(msg.type)) {
+    if (["job_updated", "cv_updated", "tailor_done", "apply_done"].includes(msg.type)) {
       setVersion((v) => v + 1);
     }
   });
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/jobs/:id/review" element={<CvReview version={version} />} />
           <Route path="/cv" element={<CvStudio version={version} />} />
           <Route path="/cv/:scope" element={<CvStudio version={version} />} />
+          <Route path="/applications" element={<Applications version={version} />} />
         </Routes>
       </Layout>
     </BrowserRouter>

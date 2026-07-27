@@ -113,6 +113,66 @@ class TailorOut(BaseModel):
     diff: dict
 
 
+class ApplyIn(BaseModel):
+    # None = generate a cover letter when a Claude key is configured.
+    cover_letter: bool | None = None
+
+
+class FailureIn(BaseModel):
+    reason: str = ""
+
+
+class ApplyOut(BaseModel):
+    """``result`` is the important field: success | dry_run | awaiting_user | failed.
+    A 200 here does not mean anything was sent."""
+
+    job_id: str
+    channel: str
+    result: str
+    detail: str
+    application_id: int | None = None
+    email: dict | None = None
+    handoff: dict | None = None
+
+
+class ApplicationOut(BaseModel):
+    """One card on the Applications board."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_id: str
+    job_title: str
+    company: str
+    job_status: JobStatus
+    channel: str | None
+    result: str | None
+    error_msg: str | None
+    submitted_at: datetime | None
+    created_at: datetime | None
+    cv_pdf_path: str | None
+    apply_target: str | None
+    meta: dict = {}
+
+    @classmethod
+    def from_row(cls, app: Any, job: Job) -> "ApplicationOut":
+        return cls(
+            id=app.id,
+            job_id=app.job_id,
+            job_title=job.title,
+            company=job.company,
+            job_status=job.status,
+            channel=app.channel,
+            result=app.result,
+            error_msg=app.error_msg,
+            submitted_at=app.submitted_at,
+            created_at=app.created_at,
+            cv_pdf_path=app.cv_pdf_path,
+            apply_target=job.apply_target,
+            meta=app.meta or {},
+        )
+
+
 class ReviewOut(BaseModel):
     """What the CV Review page reads. All tailor fields are null before the first
     round, so the page can render an untailored job without special-casing."""

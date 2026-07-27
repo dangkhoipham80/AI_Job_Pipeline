@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   PenSquare,
+  Send,
   Sparkles,
   X,
 } from "lucide-react";
@@ -30,7 +31,8 @@ export function CvReview({ version }: { version: number }) {
   const job = useApi(() => api.job(id), [id, version]);
   const review = useApi(() => api.review(id), [id, version]);
 
-  const [busy, setBusy] = useState<null | "tailor" | "edit" | "approve" | "reject">(null);
+  const [busy, setBusy] = useState<null | "tailor" | "edit" | "approve" | "reject" | "apply">(null);
+  const [applied, setApplied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -57,7 +59,10 @@ export function CvReview({ version }: { version: number }) {
   }, [id, tailored, review.data?.version]);
 
   const run = useCallback(
-    async (kind: "tailor" | "edit" | "approve" | "reject", fn: () => Promise<unknown>) => {
+    async (
+      kind: "tailor" | "edit" | "approve" | "reject" | "apply",
+      fn: () => Promise<unknown>,
+    ) => {
       setBusy(kind);
       setError(null);
       try {
@@ -101,7 +106,24 @@ export function CvReview({ version }: { version: number }) {
         onTailor={() => run("tailor", () => api.tailor(id))}
         onApprove={() => run("approve", () => api.approve(id))}
         onReject={() => run("reject", () => api.reject(id))}
+        onApply={() =>
+          run("apply", async () => {
+            const outcome = await api.applyJob(id);
+            setApplied(`${outcome.result} — ${outcome.detail}`);
+          })
+        }
       />
+
+      {applied && (
+        <Card className="border-l-2 border-l-accent">
+          <CardBody className="flex items-center justify-between gap-3 py-3 text-sm">
+            <span>{applied}</span>
+            <Link to="/applications" className="shrink-0 text-ink-muted hover:text-ink">
+              Applications board →
+            </Link>
+          </CardBody>
+        </Card>
+      )}
 
       {error && (
         <Card className="flex items-start gap-2 border-critical/40 bg-critical/5 p-3 text-sm">
@@ -164,6 +186,7 @@ function Header({
   onTailor,
   onApprove,
   onReject,
+  onApply,
 }: {
   job: JobDetail;
   review: ReviewData | null;
@@ -171,9 +194,11 @@ function Header({
   onTailor: () => void;
   onApprove: () => void;
   onReject: () => void;
+  onApply: () => void;
 }) {
   const canApprove = job.status === "REVIEW";
   const canTailor = ["SHORTLISTED", "REVIEW", "FAILED"].includes(job.status);
+  const canApply = ["APPROVED", "FAILED", "SUBMITTING"].includes(job.status);
 
   return (
     <Card>
@@ -212,10 +237,21 @@ function Header({
           <Button variant="danger" size="sm" onClick={onReject} disabled={!!busy}>
             <X size={14} /> Skip
           </Button>
-          <Button size="sm" onClick={onApprove} disabled={!!busy || !canApprove}>
-            {busy === "approve" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            Approve
-          </Button>
+          {canApply ? (
+            <Button size="sm" onClick={onApply} disabled={!!busy}>
+              {busy === "apply" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              Apply
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onApprove} disabled={!!busy || !canApprove}>
+              {busy === "approve" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Check size={14} />
+              )}
+              Approve
+            </Button>
+          )}
         </div>
       </CardBody>
     </Card>

@@ -33,10 +33,16 @@ sources:
   # tier2/tier3 (careerviet, glints, remoteok, ATS adapters...) added in later phases.
 
 apply:
+  # Email is the only full-auto channel. Three independent gates, all on by
+  # default — turn them off one at a time as you gain trust (PLAN.md §9).
   email:
-    enabled: false            # keep off until verified with your own inbox
-    method: gmail             # gmail | smtp
+    enabled: false            # gate 1: nothing is sent at all while false
+    dry_run: true             # gate 2: build + record the message, never send
+    test_recipient: ""        # gate 3: deliver here instead of the employer
+    method: smtp              # smtp (works with a Gmail app password) | gmail
     from_addr: ""
+    from_name: ""
+    subject_template: "Application for {title} — {name}"
   portal_prefill: true        # portal jobs: pre-fill then hand off to user
 
 cv:
