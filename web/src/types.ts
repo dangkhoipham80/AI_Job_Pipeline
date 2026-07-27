@@ -32,6 +32,8 @@ export interface JobDetail extends Job {
   skills: string[];
   description_md: string;
   is_fresh: boolean;
+  /** Source announced the job but couldn't carry its text (LinkedIn alerts). */
+  needs_jd: boolean;
 }
 
 export interface Stats {

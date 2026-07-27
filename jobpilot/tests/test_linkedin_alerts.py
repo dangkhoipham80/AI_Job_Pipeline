@@ -23,8 +23,13 @@ AUTH = {"X-API-Token": get_secrets().jobpilot_api_token}
 
 
 def _card(job_id: str, title: str, company: str, location: str, extra: str = "") -> str:
-    """One job card, shaped like the nested tables LinkedIn actually sends:
-    a logo link with no text, then the title link, then company/location rows."""
+    """One job card, copied from the shape real alert emails use.
+
+    Two details cost real bugs before this was checked against actual mail:
+    company and location arrive on ONE line separated by a middle dot, and a
+    social-proof line ("34 company alumni") follows, which reads exactly like a
+    location if you assume the second line is one.
+    """
     tracked = (
         f"https://www.linkedin.com/comm/jobs/view/{job_id}/"
         f"?trackingId=abc%3D%3D&refId=xyz&midToken=AQ"
@@ -36,8 +41,7 @@ def _card(job_id: str, title: str, company: str, location: str, extra: str = "")
         <td>
           <table>
             <tr><td><a href="{tracked}"><strong>{title}</strong></a></td></tr>
-            <tr><td>{company}</td></tr>
-            <tr><td>{location}</td></tr>
+            <tr><td>{company} &middot; {location}</td></tr>
             {extra}
           </table>
         </td>
@@ -51,10 +55,11 @@ ALERT_EMAIL = f"""
   <table><tr><td>
     <h2>Your job alert for backend engineer</h2>
     {_card("4012345678", "Backend Engineer (Java, Spring Boot)", "ACME Corp",
-           "Ho Chi Minh City, Vietnam", "<tr><td>Promoted</td></tr>")}
+           "Ho Chi Minh City, Vietnam (Hybrid)", "<tr><td>34 company alumni</td></tr>")}
     {_card("4012345679", "Junior Java Developer", "Beta Technologies",
-           "Ha Noi, Vietnam", "<tr><td>Be an early applicant</td></tr>")}
-    {_card("4012345680", "Software Engineer, Backend", "Gamma Labs", "Remote")}
+           "Ha Noi, Vietnam (On-site)", "<tr><td>4 connections</td></tr>")}
+    {_card("4012345680", "Software Engineer, Backend", "Gamma Labs", "Vietnam (Remote)",
+           "<tr><td>Promoted</td></tr>")}
     <a href="https://www.linkedin.com/jobs/search/?keywords=backend">See all jobs</a>
     <a href="https://www.linkedin.com/comm/psettings/email-unsubscribe">Unsubscribe</a>
   </td></tr></table>
@@ -79,7 +84,22 @@ def test_reads_title_company_and_location(scraper):
     first = scraper.parse_search(ALERT_EMAIL)[0]
     assert first.title == "Backend Engineer (Java, Spring Boot)"
     assert first.company == "ACME Corp"
-    assert first.location == "Ho Chi Minh City, Vietnam"
+    assert first.location == "Ho Chi Minh City, Vietnam (Hybrid)"
+
+
+def test_company_and_location_are_split_on_the_middle_dot(scraper):
+    """Real cards put both on one line: "ACME Corp · Ho Chi Minh City". Keeping
+    them merged made every company name carry a location tail."""
+    for hit in scraper.parse_search(ALERT_EMAIL):
+        assert "·" not in hit.company
+        assert hit.company in ("ACME Corp", "Beta Technologies", "Gamma Labs")
+
+
+def test_social_proof_is_never_read_as_a_location(scraper):
+    """ "34 company alumni" / "4 connections" sit where a location would be."""
+    locations = [h.location for h in scraper.parse_search(ALERT_EMAIL)]
+    assert all("alumni" not in (loc or "") for loc in locations)
+    assert all("connection" not in (loc or "") for loc in locations)
 
 
 def test_tracking_parameters_are_stripped_from_the_url(scraper):
@@ -101,7 +121,7 @@ def test_footer_links_are_not_jobs(scraper):
 
 
 def test_badges_are_not_mistaken_for_a_company(scraper):
-    """ "Promoted" / "Be an early applicant" sit right next to the real fields."""
+    """ "Promoted" / social-proof lines sit right next to the real fields."""
     by_id = {h.native_id: h for h in scraper.parse_search(ALERT_EMAIL)}
     assert by_id["4012345678"].company == "ACME Corp"
     assert by_id["4012345679"].company == "Beta Technologies"
@@ -133,11 +153,25 @@ def test_jobs_are_external_and_never_auto_applied(scraper):
     assert raw.apply_target == job_url("4012345678")
 
 
-def test_missing_description_is_flagged_not_faked(scraper):
-    """Alert emails carry no JD. Say so instead of tailoring against nothing."""
+def test_missing_description_is_empty_and_flagged(scraper):
+    """Alert emails carry no JD. The description stays genuinely empty so
+    "has no JD" is one check everywhere; needs_jd records why."""
     raw = scraper.parse_detail("", scraper.parse_search(ALERT_EMAIL)[0])
+    assert raw.description_md == ""
     assert raw.extra["needs_jd"] is True
-    assert "paste it in before tailoring" in raw.description_md
+
+
+def test_needs_jd_survives_normalisation_into_the_payload(scraper):
+    """The flag was silently dropped once: normalize() rebuilt the payload from
+    named fields and ignored `extra`."""
+    from jobpilot.config import Config
+    from jobpilot.crawler.normalize import normalize
+
+    raw = scraper.parse_detail("", scraper.parse_search(ALERT_EMAIL)[0])
+    payload = normalize(raw, Config()).payload
+    assert payload["needs_jd"] is True
+    # ...and extras must never shadow a canonical §3.1 field.
+    assert payload["source"] == "linkedin"
 
 
 def test_job_id_is_the_linkedin_posting_id(scraper):

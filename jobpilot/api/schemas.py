@@ -38,6 +38,9 @@ class JobDetailOut(JobOut):
     skills: list[str] = []
     description_md: str = ""
     is_fresh: bool = False
+    # True when the source announced the job but couldn't carry its text —
+    # LinkedIn alerts, mainly. Paste one in before tailoring.
+    needs_jd: bool = False
 
     @classmethod
     def from_job(cls, job: Job) -> "JobDetailOut":
@@ -47,6 +50,7 @@ class JobDetailOut(JobOut):
             skills=payload.get("skills", []) or [],
             description_md=payload.get("description_md", "") or "",
             is_fresh=bool(payload.get("is_fresh", False)),
+            needs_jd=bool(payload.get("needs_jd", False)),
         )
 
 

@@ -155,6 +155,9 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
     score = stack_match_score(haystack, cfg.crawl.stacks)
 
     payload = {
+        # Scraper-specific extras first, so a stray key can never shadow a
+        # canonical PLAN §3.1 field. This is how flags like `needs_jd` survive.
+        **raw.extra,
         "id": raw.id,
         "source": raw.source,
         "url": raw.url,

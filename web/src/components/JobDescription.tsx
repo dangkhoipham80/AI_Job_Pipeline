@@ -57,12 +57,17 @@ export function JobDescription({ job, onSaved }: { job: JobDetail; onSaved: () =
         </div>
       </CardHeader>
       <CardBody>
-        {empty && !editing && (
+        {/* Shown while editing too: the editor auto-opens when there is no
+            description, which is exactly when the warning matters most. */}
+        {empty && (
           <p className="mb-3 flex items-start gap-2 rounded-lg border border-accent/40 bg-accent/8 px-3 py-2 text-xs leading-relaxed">
             <AlertTriangle size={14} className="mt-0.5 shrink-0 text-accent" />
             <span>
-              No description yet. Tailoring without one produces a generic CV — open the posting,
-              copy the description, and paste it here first.
+              {job.needs_jd
+                ? "This job came from a LinkedIn alert, which announces the posting but not its text — and JobPilot won't fetch it (robots.txt). "
+                : "No description yet. "}
+              Tailoring without one produces a generic CV — open the posting, copy the
+              description, and paste it here first.
             </span>
           </p>
         )}

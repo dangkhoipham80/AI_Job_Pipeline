@@ -120,6 +120,11 @@ LinkedIn, không tài khoản nào bị ban.
 Job vào DB với cờ `needs_jd`; mở trang job, dán JD vào rồi mới tailor — nếu không
 agent chẳng có gì để bám. Kênh apply luôn là `external`: bạn tự nộp trên LinkedIn.
 
+**Đã verify trên mail thật** (1.116 alert trong hộp thư): parser đọc đúng title/company/
+location/job-id. Hai bug chỉ lộ ra khi chạy thật, đã sửa + có test giữ:
+LinkedIn để **company và location trên CÙNG một dòng** ngăn bằng `·` (không phải 2 dòng),
+và dòng social proof (`34 company alumni`, `4 connections`) lọt vào `location`.
+
 **Đường thứ hai:** nút **Add job** ở trang Jobs — dán thẳng link + JD. Dùng cho job
 thấy ngoài alert. Link LinkedIn cho ra id ổn định nên dán lại cùng link sẽ *update*
 chứ không tạo bản trùng.

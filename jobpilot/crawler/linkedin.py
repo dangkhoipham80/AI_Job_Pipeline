@@ -35,13 +35,22 @@ log = logging.getLogger(__name__)
 
 # Alert emails link to /comm/jobs/view/<id> (tracked) or /jobs/view/<id>.
 JOB_LINK_RE = re.compile(r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", re.I)
-# Lines that are chrome, not job data.
+# Lines that are chrome or social proof, not job data. Verified against real
+# alert emails: LinkedIn slips "34 company alumni" / "4 connections" straight
+# after the company line, and they read exactly like a location if you let them.
 _NOISE = re.compile(
     r"^(see all jobs|view job|apply now|unsubscribe|this email was|you are receiving"
-    r"|actively recruiting|easy apply|be an early applicant|\d+ (school|connection)"
-    r"|promoted|new)\b",
+    r"|actively recruiting|easy apply|be an early applicant|promoted|new|viewed"
+    r"|\d+\s+(school|company)\s+alumni"
+    r"|\d+\s+connections?\b"
+    r"|\d+\s+(school|company)\s+alumni\s+work\s+here)",
     re.I,
 )
+
+# Real alert cards put company and location on ONE line: "ACME · Ho Chi Minh
+# City, Vietnam (Hybrid)". The separator is a middle dot, occasionally with
+# non-breaking spaces around it.
+_COMPANY_LOCATION_SEP = re.compile(r"\s*[·•]\s*")
 
 
 def job_url(job_id: str) -> str:
@@ -97,11 +106,16 @@ class LinkedInAlertsScraper(BaseScraper):
 
     @staticmethod
     def _company_and_location(anchor, title: str) -> tuple[str, str | None]:
-        """Read the two lines that normally follow a job title in an alert card.
+        """Read the company/location line that follows a job title in a card.
 
         Alert emails are nested tables with no stable classes, so this walks up
-        to the smallest ancestor that holds more than the title alone and reads
-        its text lines. Wrong guesses cost a blank field, not a bad job.
+        to the smallest ancestor holding more than the title alone and reads its
+        text lines. Real emails put both facts on one line —
+        ``"NAB Innovation Centre Vietnam · Ho Chi Minh City, Vietnam (Hybrid)"``
+        — so the line is split on the middle dot rather than assuming a second
+        line, which would otherwise pick up "34 company alumni".
+
+        Wrong guesses cost a blank field, not a wrong job.
         """
         block = anchor
         lines: list[str] = []
@@ -119,9 +133,16 @@ class LinkedInAlertsScraper(BaseScraper):
                 lines = candidates
                 break
 
-        company = lines[0] if lines else ""
-        location = lines[1] if len(lines) > 1 else None
-        return company, location
+        if not lines:
+            return "", None
+
+        parts = _COMPANY_LOCATION_SEP.split(lines[0], maxsplit=1)
+        company = parts[0].strip()
+        location = parts[1].strip() if len(parts) > 1 else ""
+        if not location and len(lines) > 1:
+            # Some layouts really do put the location on its own line.
+            location = lines[1]
+        return company, location or None
 
     def parse_detail(self, html: str, hit: SearchHit) -> RawJob:
         """Build the job from the card. There is no detail page to fetch — that
@@ -134,11 +155,10 @@ class LinkedInAlertsScraper(BaseScraper):
             company=hit.company,
             location=hit.location,
             posted_raw=hit.posted_raw,
-            description_md=(
-                f"_Job discovered through a LinkedIn Job Alert email. LinkedIn's robots.txt "
-                f"forbids fetching the posting automatically, so the description is not "
-                f"included — open [the posting]({hit.url}) and paste it in before tailoring._"
-            ),
+            # Deliberately empty rather than a placeholder note: "no description"
+            # must be one check (`not description_md`) for the UI, the API and the
+            # tailor alike. `needs_jd` in extra records *why* it is empty.
+            description_md="",
             # LinkedIn is never auto-applied (CLAUDE.md rule 2): you submit it.
             apply_channel="external",
             apply_target=hit.url,
