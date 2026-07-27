@@ -240,6 +240,20 @@ def cmd_confirm_submit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_slack(args: argparse.Namespace) -> int:
+    """Run the Slack companion app (Phase 7). Needs the API already running."""
+    from jobpilot.slack.app import SlackNotConfigured, run
+
+    try:
+        run(api_base=args.api, web_base=args.web)
+    except SlackNotConfigured as exc:
+        print(f"Slack not started: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nstopped")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -321,6 +335,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int, default=8000)
     p_serve.add_argument("--reload", action="store_true", help="auto-reload on code change")
     p_serve.set_defaults(func=cmd_serve)
+    p_slack = sub.add_parser("slack", help="run the Slack companion app (Phase 7)")
+    p_slack.add_argument("--api", default="http://127.0.0.1:8000", help="JobPilot API base URL")
+    p_slack.add_argument("--web", default="http://localhost:5173", help="dashboard base URL")
+    p_slack.set_defaults(func=cmd_slack)
+
     sub.add_parser("run", help="crawl -> notify -> await (Phase 8)").set_defaults(
         func=_not_yet("Phase 8")
     )

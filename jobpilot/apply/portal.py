@@ -61,14 +61,21 @@ class Handoff:
         }
 
 
+def _person_case(name: str) -> str:
+    """The CV header stores names in caps for the LaTeX header styling; a web
+    form wants them the way a person writes them."""
+    name = name.strip()
+    return name.title() if name.isupper() else name
+
+
 def contact_fields(master: CvDocument) -> dict[str, str]:
     """Contact details pulled from the CV header — the answers most forms want."""
     h = master.header
-    full = " ".join(p for p in (h.first_name, h.last_name) if p).strip()
+    first, last = _person_case(h.first_name), _person_case(h.last_name)
     out = {
-        "first_name": h.first_name,
-        "last_name": h.last_name,
-        "full_name": full.title() if full.isupper() else full,
+        "first_name": first,
+        "last_name": last,
+        "full_name": " ".join(p for p in (first, last) if p),
         "email": h.email or "",
         "phone": h.mobile or "",
         "github": f"https://github.com/{h.github}" if h.github else "",

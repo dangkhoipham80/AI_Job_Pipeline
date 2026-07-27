@@ -214,6 +214,12 @@ def test_contact_fields_come_from_the_cv_header(db):
     assert fields["full_name"] == "Khoi Pham"
 
 
+def test_names_are_cased_for_a_web_form_not_for_latex(db):
+    """The CV header holds KHOI/PHAM for the header styling; a form wants Khoi Pham."""
+    fields = contact_fields(cv_store.get_document(db, "master"))
+    assert fields["first_name"] == "Khoi" and fields["last_name"] == "Pham"
+
+
 def test_form_label_matching():
     assert match_field("First Name") == "first_name"
     assert match_field("your-email") == "email"
