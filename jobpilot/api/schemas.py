@@ -113,6 +113,44 @@ class TailorOut(BaseModel):
     diff: dict
 
 
+class JobIn(BaseModel):
+    """Add a job by hand — the path for anything the crawlers can't reach.
+
+    Mostly LinkedIn: its robots.txt forbids automated access to job pages, so you
+    find the posting yourself and paste it here. Everything downstream (tailor,
+    review, apply) then works exactly as it does for a crawled job.
+    """
+
+    url: str = ""
+    title: str
+    company: str
+    location: str | None = None
+    salary: str | None = None
+    level: str | None = None
+    description_md: str = ""
+    skills: list[str] = []
+    # Defaults to external — you submit it yourself, which is the honest default
+    # for a job we couldn't crawl.
+    apply_channel: str = "external"
+    apply_target: str | None = None
+
+
+class JobPatch(BaseModel):
+    """Fill in or correct a job. Only the fields present are touched, so pasting
+    a description can't wipe the title."""
+
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    salary: str | None = None
+    level: str | None = None
+    url: str | None = None
+    description_md: str | None = None
+    skills: list[str] | None = None
+    apply_channel: str | None = None
+    apply_target: str | None = None
+
+
 class ApplyIn(BaseModel):
     # None = generate a cover letter when a Claude key is configured.
     cover_letter: bool | None = None

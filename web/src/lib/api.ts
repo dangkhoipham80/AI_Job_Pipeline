@@ -9,6 +9,7 @@ import type {
   CvVersionDetail,
   Job,
   JobDetail,
+  JobInput,
   JobsQuery,
   ReviewData,
   RunRecord,
@@ -65,6 +66,12 @@ export const api = {
   stats: () => req<Stats>("/stats"),
   jobs: (query: JobsQuery = {}) => req<Job[]>(`/jobs${qs(query as Record<string, unknown>)}`),
   job: (id: string) => req<JobDetail>(jobPath(id)),
+  /* Manual entry — the way in for postings no crawler may fetch, LinkedIn above
+     all (its robots.txt disallows automated access to job pages). */
+  createJob: (body: JobInput) =>
+    req<JobDetail>("/jobs", { method: "POST", body: JSON.stringify(body) }),
+  patchJob: (id: string, patch: Partial<JobInput>) =>
+    req<JobDetail>(jobPath(id), { method: "PATCH", body: JSON.stringify(patch) }),
   shortlist: (id: string) => req<JobDetail>(`${jobPath(id)}/shortlist`, { method: "POST" }),
   skip: (id: string) => req<JobDetail>(`${jobPath(id)}/skip`, { method: "POST" }),
 

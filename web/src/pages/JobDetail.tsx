@@ -4,12 +4,13 @@ import { ArrowLeft, Building2, Check, ExternalLink, MapPin, Sparkles, Wallet } f
 import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import type { JobStatus } from "@/types";
-import { relativeTime, titleCase } from "@/lib/format";
+import { relativeTime } from "@/lib/format";
 import { StatusPill } from "@/components/StatusPill";
 import { MatchMeter } from "@/components/MatchMeter";
 import { FreshBeacon } from "@/components/FreshBeacon";
 import { sourceColor } from "@/components/charts/palette";
-import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, CardBody, Skeleton } from "@/components/ui";
+import { JobDescription } from "@/components/JobDescription";
 
 const EARLY = new Set<JobStatus>(["DISCOVERED", "SHORTLISTED", "SKIPPED"]);
 // Statuses from which the CV Review page is worth opening (matches
@@ -128,25 +129,7 @@ export function JobDetail({ version }: { version: number }) {
             </CardBody>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Job description</CardTitle>
-              {job.apply_channel && (
-                <span className="text-xs text-ink-muted">
-                  applies via {titleCase(job.apply_channel)}
-                </span>
-              )}
-            </CardHeader>
-            <CardBody>
-              {job.description_md ? (
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink/90">
-                  {job.description_md}
-                </pre>
-              ) : (
-                <p className="text-sm text-ink-muted">No description was captured for this job.</p>
-              )}
-            </CardBody>
-          </Card>
+          <JobDescription job={job} onSaved={refetch} />
         </>
       )}
     </div>

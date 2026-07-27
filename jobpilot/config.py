@@ -128,6 +128,13 @@ class Secrets(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
 
+    # Reading *your own* mailbox for LinkedIn Job Alerts (Phase 9). Gmail needs
+    # an App Password, not your account password — see CLAUDE.md.
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    imap_user: str = ""
+    imap_password: str = ""
+
 
 def deep_merge(base: dict, overlay: dict) -> dict:
     """Overlay wins, but only for the keys it actually sets."""

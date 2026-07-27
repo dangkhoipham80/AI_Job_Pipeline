@@ -10,6 +10,7 @@ import { MatchMeter } from "@/components/MatchMeter";
 import { FreshBeacon } from "@/components/FreshBeacon";
 import { sourceColor } from "@/components/charts/palette";
 import { Button, Card, Input, Select, Skeleton } from "@/components/ui";
+import { AddJobForm } from "@/components/AddJobForm";
 
 const SOURCES = ["itviec", "topcv", "vietnamworks", "topdev"];
 const LEVELS = ["intern", "fresher", "junior", "middle", "senior"];
@@ -62,13 +63,14 @@ export function Jobs({ version }: { version: number }) {
 
   return (
     <div className="animate-fade-up space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Jobs</h1>
           <p className="mt-0.5 text-sm text-ink-muted">
             {jobs ? `${jobs.length} shown` : "Loading…"} · newest postings first
           </p>
         </div>
+        <AddJobForm onCreated={() => refetch()} />
       </div>
 
       {/* Filter bar */}

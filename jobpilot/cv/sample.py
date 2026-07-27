@@ -126,7 +126,14 @@ def sample_document() -> CvDocument:
                             "**FAISS**, **MongoDB**, and OCR.",
                         ],
                         role="Team Lead",
-                        tech_stack=["Spring Boot", "FastAPI", "Kafka", "MongoDB", "React", "Docker"],
+                        tech_stack=[
+                            "Spring Boot",
+                            "FastAPI",
+                            "Kafka",
+                            "MongoDB",
+                            "React",
+                            "Docker",
+                        ],
                     ),
                     Entry(
                         title="Pathfinder -- Educational Platform (5 members, `Java`)",

@@ -11,6 +11,7 @@ import logging
 from jobpilot.config import Config
 from jobpilot.crawler.base import BaseScraper, Fetcher
 from jobpilot.crawler.itviec import ITViecScraper
+from jobpilot.crawler.linkedin import LinkedInAlertsScraper
 from jobpilot.crawler.ratelimit import RateLimiter
 from jobpilot.crawler.robots import RobotsPolicy
 from jobpilot.crawler.topcv import TopCVScraper
@@ -20,6 +21,8 @@ log = logging.getLogger(__name__)
 
 SCRAPERS: dict[str, type[BaseScraper]] = {
     "itviec": ITViecScraper,
+    # Reads your mailbox for LinkedIn Job Alerts — never crawls LinkedIn.
+    "linkedin": LinkedInAlertsScraper,
     "topcv": TopCVScraper,
     "vietnamworks": VietnamWorksScraper,
 }

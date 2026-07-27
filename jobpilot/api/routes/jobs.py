@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,13 +10,31 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import JobDetailOut, JobOut
+from jobpilot.api.schemas import JobDetailOut, JobIn, JobOut, JobPatch
 from jobpilot.api.ws import manager
 from jobpilot.config import get_config
 from jobpilot.store.models import Job, JobStatus
 from jobpilot.timeutil import vn_now
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_token)])
+
+_SLUG_UNSAFE = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(text: str) -> str:
+    return _SLUG_UNSAFE.sub("-", text.lower()).strip("-")[:80] or "job"
+
+
+def _native_id(url: str) -> str:
+    """A stable id from a posting URL. LinkedIn ids are the useful case:
+    /jobs/view/4012345678 -> linkedin-4012345678, so re-pasting updates."""
+    if not url:
+        return ""
+    linkedin = re.search(r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", url, re.I)
+    if linkedin:
+        return f"linkedin-{linkedin.group(1)}"
+    return _slug(url.split("?")[0].rstrip("/").rsplit("/", 1)[-1])
+
 
 # Statuses from which a user may still shortlist/skip (before the tailor stage).
 _EARLY = {JobStatus.DISCOVERED, JobStatus.SHORTLISTED, JobStatus.SKIPPED}
@@ -48,6 +67,81 @@ def list_jobs(
     # Freshness first (newest postings on top), then most recently crawled.
     stmt = stmt.order_by(Job.posted_at.desc(), Job.crawled_at.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt))
+
+
+@router.post("", response_model=JobDetailOut, status_code=201)
+async def create_job(body: JobIn, db: Session = Depends(get_db)) -> JobDetailOut:
+    """Add a job by hand (source ``manual``).
+
+    The escape hatch for postings no crawler can reach — LinkedIn above all,
+    whose robots.txt disallows automated access to job pages. Paste the JD and
+    the rest of the pipeline treats it like any other job.
+    """
+    if not body.title.strip() or not body.company.strip():
+        raise HTTPException(status_code=422, detail="title and company are required")
+
+    now = vn_now()
+    # Stable id from the URL when there is one, so pasting the same posting
+    # twice updates it instead of creating a duplicate.
+    native = _native_id(body.url) or _slug(f"{body.company}-{body.title}")
+    job_id = f"manual:{native}"
+
+    job = db.get(Job, job_id)
+    if job is None:
+        job = Job(id=job_id, source="manual", crawled_at=now)
+        db.add(job)
+
+    job.url = body.url
+    job.title = body.title.strip()
+    job.company = body.company.strip()
+    job.location = body.location
+    job.salary = body.salary
+    job.level = body.level
+    job.apply_channel = body.apply_channel
+    job.apply_target = body.apply_target or body.url or None
+    job.posted_at = job.posted_at or now
+    job.payload = {
+        **(job.payload or {}),
+        "skills": body.skills,
+        "description_md": body.description_md,
+        "is_fresh": True,
+    }
+    db.commit()
+    db.refresh(job)
+    await manager.broadcast({"type": "job_updated", "id": job.id, "status": job.status.value})
+    return JobDetailOut.from_job(job)
+
+
+@router.patch("/{job_id:path}", response_model=JobDetailOut)
+async def patch_job(job_id: str, body: JobPatch, db: Session = Depends(get_db)) -> JobDetailOut:
+    """Edit a job — mainly to paste in a description the source didn't carry.
+
+    LinkedIn alert emails announce a job but not its text, so this is how a
+    job goes from "found" to "tailorable".
+    """
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    patch = body.model_dump(exclude_none=True)
+    if not patch:
+        raise HTTPException(status_code=422, detail="nothing to change")
+
+    payload = dict(job.payload or {})
+    for field in ("description_md", "skills"):
+        if field in patch:
+            payload[field] = patch.pop(field)
+    # A pasted description means the job no longer needs one.
+    if "description_md" in (body.model_dump(exclude_none=True)):
+        payload.pop("needs_jd", None)
+    job.payload = payload
+
+    for field, value in patch.items():
+        setattr(job, field, value)
+    db.commit()
+    db.refresh(job)
+    await manager.broadcast({"type": "job_updated", "id": job.id, "status": job.status.value})
+    return JobDetailOut.from_job(job)
 
 
 @router.get("/{job_id:path}", response_model=JobDetailOut)

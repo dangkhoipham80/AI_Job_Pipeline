@@ -345,6 +345,18 @@ export interface Settings {
   cv: { master_dir: string; out_dir: string; docker_image: string; theme: string };
 }
 
+export interface JobInput {
+  url?: string;
+  title: string;
+  company: string;
+  location?: string | null;
+  salary?: string | null;
+  description_md?: string;
+  skills?: string[];
+  apply_channel?: string;
+  apply_target?: string | null;
+}
+
 // Pipeline order for the funnel (PLAN.md §4 state machine).
 export const FUNNEL_ORDER: JobStatus[] = [
   "DISCOVERED",

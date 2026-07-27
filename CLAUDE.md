@@ -95,6 +95,35 @@ make dev
 - **CV data flow (quan trọng)**: nguồn sự thật của nội dung CV là **JSON structured** (CV Studio + agent tailor cùng dùng) → serialize ra `.tex` qua Jinja2 → Docker build PDF. Không sửa `.tex` tailored bằng tay ngoài luồng này (trừ raw-mode trong Studio, có cảnh báo mất round-trip). Mọi lần save = 1 row `cv_versions` (author = user|agent).
 - **Verify thay đổi runtime**: sau khi sửa scraper/tailor/apply, chạy thử flow tương ứng và quan sát output thật, đừng chỉ dựa vào test. Sau khi sửa template Jinja2 hoặc `cv/latex.py` phải build lại PDF để chắc không lỗi LaTeX.
 
+## LinkedIn qua Job Alerts (không crawl)
+
+`linkedin.com/robots.txt` **cấm** truy cập tự động vào trang job — kể cả endpoint
+`/jobs-guest/` khi không đăng nhập — và mở đầu bằng *"The use of robots or other
+automated means to access LinkedIn without the express permission of LinkedIn is
+strictly prohibited."* Nên **không có cách crawl LinkedIn nào tuân thủ robots.txt**,
+và dự án không làm (nguyên tắc 5).
+
+Thay vào đó dùng chính cơ chế LinkedIn cung cấp: **Job Alerts**. LinkedIn gửi job
+khớp vào mail của bạn, JobPilot đọc **hộp mail của bạn**. Không request nào tới
+LinkedIn, không tài khoản nào bị ban.
+
+**Cài đặt:**
+1. LinkedIn → Jobs → tìm theo tiêu chí → bật **Job alert** (nên tạo 5–10 alert, đặt *Daily*).
+2. Bật 2-Step Verification cho Google, rồi tạo **App Password** tại
+   <https://myaccount.google.com/apppasswords> (mật khẩu Gmail thường sẽ bị từ chối).
+3. Điền `IMAP_USER` / `IMAP_PASSWORD` trong `.env`.
+4. Bật nguồn: `sources: - { key: linkedin, enabled: true }` trong `config.yaml`
+   (hoặc bấm trên trang Settings).
+5. `python -m jobpilot.cli run` — hoặc bấm **Crawl now** ở trang Runs.
+
+**Giới hạn thật:** mail alert có title/company/location nhưng **không có JD đầy đủ**.
+Job vào DB với cờ `needs_jd`; mở trang job, dán JD vào rồi mới tailor — nếu không
+agent chẳng có gì để bám. Kênh apply luôn là `external`: bạn tự nộp trên LinkedIn.
+
+**Đường thứ hai:** nút **Add job** ở trang Jobs — dán thẳng link + JD. Dùng cho job
+thấy ngoài alert. Link LinkedIn cho ra id ổn định nên dán lại cùng link sẽ *update*
+chứ không tạo bản trùng.
+
 ## Thêm một site crawl mới
 
 1. Tạo `crawler/<site>.py` kế thừa `BaseScraper`, cài `search()` + `parse_detail()`.
