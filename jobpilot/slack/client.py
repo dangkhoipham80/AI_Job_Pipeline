@@ -103,12 +103,18 @@ class JobPilotClient:
         return self._request("POST", f"{self._job_path(job_id)}/skip")
 
     def tailor(self, job_id: str) -> dict:
+        """Queue a tailor round. Returns the task, not the result — the review
+        card arrives later, over the WebSocket mirror."""
         return self._request("POST", f"{self._job_path(job_id)}/tailor")
 
     def edit(self, job_id: str, instruction: str) -> dict:
         return self._request(
             "POST", f"{self._job_path(job_id)}/edit", json={"instruction": instruction}
         )
+
+    def task(self, task_id: str) -> dict:
+        """One background task. The queue keeps the last 50, so an old id 404s."""
+        return self._request("GET", f"/tasks/{task_id}")
 
     def review(self, job_id: str) -> dict:
         return self._request("GET", f"{self._job_path(job_id)}/review")

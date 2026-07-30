@@ -3,22 +3,29 @@
 Like ``routes.review``, the ``/jobs/...`` routes here must be registered before
 ``routes.jobs`` — its ``GET /{job_id:path}`` is greedy.
 
-Applying can send real mail, so the endpoint reports exactly what happened
-(``result``) rather than collapsing everything into 200/OK: ``dry_run`` means
+Applying writes a cover letter with Claude and may talk to an SMTP server, so it
+runs on the task queue like tailoring: ``POST .../apply`` answers 202 with a task
+id. What the dispatch actually *did* lands in ``task.result`` — ``dry_run`` means
 nothing left the machine, ``awaiting_user`` means the human still has to submit.
+Collapsing those into "200/OK" would be the one lie this module can't afford.
+
+Bad state is still refused synchronously: a job that was never tailored has no
+PDF to attach, and that should be a 409 now, not a task failure later.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import ApplicationOut, ApplyIn, ApplyOut, FailureIn, JobDetailOut
+from jobpilot.api.schemas import ApplicationOut, ApplyIn, FailureIn, JobDetailOut, TaskOut
 from jobpilot.api.ws import manager
 from jobpilot.apply import dispatcher
 from jobpilot.apply.letter import LetterEngine, default_letter_engine
 from jobpilot.config import get_config, get_secrets
+from jobpilot.orchestrator import TaskBusy, apply_body, queue
 from jobpilot.store.models import Application, Job
 
 router = APIRouter(prefix="/jobs", tags=["apply"], dependencies=[Depends(require_token)])
@@ -31,38 +38,35 @@ def get_letter_engine() -> LetterEngine | None:
     return default_letter_engine() if get_secrets().anthropic_api_key else None
 
 
-@router.post("/{job_id:path}/apply", response_model=ApplyOut)
-async def apply(
+@router.post("/{job_id:path}/apply", response_model=TaskOut, status_code=202)
+def apply(
     job_id: str,
     body: ApplyIn | None = None,
     db: Session = Depends(get_db),
     engine: LetterEngine | None = Depends(get_letter_engine),
-) -> ApplyOut:
-    """Dispatch this job to its channel. Email may send for real — see the gates
-    in ``apply.email``; portal/external only ever prepare a handoff."""
+) -> JSONResponse:
+    """Queue a dispatch to this job's channel. Email may send for real — see the
+    gates in ``apply.email``; portal/external only ever prepare a handoff."""
     wants_letter = True if body is None or body.cover_letter is None else body.cover_letter
     try:
-        outcome = dispatcher.apply_job(db, job_id, engine if wants_letter else None)
+        job, _cv_pdf = dispatcher.check_appliable(db, job_id)
     except dispatcher.ApplyRefused as exc:
         status = 404 if "not found" in str(exc) else 409
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
-    job = db.get(Job, job_id)
-    await manager.broadcast(
-        {"type": "job_updated", "id": job_id, "status": job.status.value if job else None}
-    )
-    await manager.broadcast(
-        {"type": "apply_done", "id": job_id, "channel": outcome.channel, "result": outcome.result}
-    )
-    return ApplyOut(
-        job_id=outcome.job_id,
-        channel=outcome.channel,
-        result=outcome.result,
-        detail=outcome.detail,
-        application_id=outcome.application_id,
-        email=outcome.email.summary() if outcome.email else None,
-        handoff=outcome.handoff.summary() if outcome.handoff else None,
-    )
+    try:
+        task = queue.submit(
+            "apply",
+            apply_body(job_id, engine if wants_letter else None),
+            label=f"apply · {job.title or job_id}",
+            job_id=job_id,
+            exclusive=True,
+        )
+    except TaskBusy as exc:
+        # Including a tailor round still in flight: applying the CV it is midway
+        # through rewriting would attach whichever version won the race.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(status_code=202, content=TaskOut(**task.to_dict()).model_dump(mode="json"))
 
 
 @router.post("/{job_id:path}/confirm-submit", response_model=JobDetailOut)

@@ -94,7 +94,8 @@ class CvVersionDetailOut(CvVersionOut):
 class CvCompileOut(BaseModel):
     scope: str
     version: int
-    pages: int
+    #: None when the build succeeded but the page count couldn't be read.
+    pages: int | None
     pdf_url: str
 
 
@@ -103,20 +104,6 @@ class CvCompileOut(BaseModel):
 # --------------------------------------------------------------------------- #
 class TailorIn(BaseModel):
     instruction: str
-
-
-class TailorOut(BaseModel):
-    """Result of one tailor round. ``plan``/``diff`` are passed through as-is so
-    the UI and the stored ``cv_versions.meta`` always agree."""
-
-    job_id: str
-    version: int
-    round: int
-    attempts: int
-    pages: int | None
-    match_score: float
-    plan: dict
-    diff: dict
 
 
 class JobIn(BaseModel):
@@ -164,19 +151,6 @@ class ApplyIn(BaseModel):
 
 class FailureIn(BaseModel):
     reason: str = ""
-
-
-class ApplyOut(BaseModel):
-    """``result`` is the important field: success | dry_run | awaiting_user | failed.
-    A 200 here does not mean anything was sent."""
-
-    job_id: str
-    channel: str
-    result: str
-    detail: str
-    application_id: int | None = None
-    email: dict | None = None
-    handoff: dict | None = None
 
 
 class ApplicationOut(BaseModel):
@@ -231,6 +205,9 @@ class TaskOut(BaseModel):
     progress: str = ""
     result: dict = {}
     error: str | None = None
+    #: Exception class name — lets the UI treat a guardrail violation (the agent
+    #: tried to claim something untrue) differently from a build or network fault.
+    error_kind: str | None = None
     created_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
