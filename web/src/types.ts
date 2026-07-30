@@ -1,0 +1,411 @@
+// Mirrors jobpilot/api/schemas.py.
+
+export type JobStatus =
+  | "DISCOVERED"
+  | "SHORTLISTED"
+  | "TAILORING"
+  | "REVIEW"
+  | "APPROVED"
+  | "SUBMITTING"
+  | "SUBMITTED"
+  | "FAILED"
+  | "SKIPPED";
+
+export interface Job {
+  id: string;
+  source: string;
+  url: string;
+  title: string;
+  company: string;
+  location: string | null;
+  salary: string | null;
+  level: string | null;
+  posted_at: string | null;
+  status: JobStatus;
+  match_score: number;
+  apply_channel: string | null;
+  apply_target: string | null;
+  crawled_at: string | null;
+  /** Which crawl discovered this job (null when added by hand). */
+  run_id: number | null;
+}
+
+export interface JobDetail extends Job {
+  skills: string[];
+  description_md: string;
+  is_fresh: boolean;
+  /** Source announced the job but couldn't carry its text (LinkedIn alerts). */
+  needs_jd: boolean;
+}
+
+export interface Stats {
+  total: number;
+  fresh: number;
+  by_status: Record<JobStatus, number>;
+  by_source: Record<string, number>;
+  by_level: Record<string, number>;
+  by_day: Record<string, number>;
+}
+
+export interface JobsQuery {
+  source?: string;
+  status?: JobStatus;
+  level?: string;
+  q?: string;
+  fresh?: boolean;
+  /** Only jobs discovered by this crawl. */
+  run_id?: number;
+  /** ISO timestamp — only jobs crawled at or after it. */
+  crawled_after?: string;
+  order?: "posted" | "crawled";
+  limit?: number;
+  offset?: number;
+}
+
+/* CV Studio (Phase 4.5) — mirrors jobpilot/cv/schema.py -------------------- */
+
+export interface CvTheme {
+  color: string;
+  section_highlight: boolean;
+  font_dir: string;
+}
+
+export interface CvHeader {
+  first_name: string;
+  last_name: string;
+  position: string;
+  address: string | null;
+  mobile: string | null;
+  email: string | null;
+  homepage: string | null;
+  github: string | null;
+  linkedin: string | null;
+  extra_info: { label: string; url: string } | null;
+  quote: string | null;
+}
+
+export interface CvBulletItem {
+  label: string | null;
+  text: string;
+  date: string | null;
+}
+
+export interface CvEducationEntry {
+  degree: string;
+  institution: string;
+  location: string;
+  date: string;
+  items: string[];
+}
+
+export interface CvEntry {
+  title: string;
+  date: string;
+  url: string | null;
+  items: string[];
+  role: string | null;
+  tech_stack: string[];
+}
+
+interface CvSectionBase {
+  key: string;
+  title: string;
+  enabled: boolean;
+}
+
+export type CvSection =
+  | (CvSectionBase & { type: "paragraph"; text: string; small: boolean })
+  | (CvSectionBase & { type: "bullets"; items: CvBulletItem[] })
+  | (CvSectionBase & { type: "education"; entries: CvEducationEntry[] })
+  | (CvSectionBase & { type: "experience"; entries: CvEntry[] })
+  | (CvSectionBase & { type: "projects"; entries: CvEntry[] });
+
+export type CvSectionType = CvSection["type"];
+
+export interface CvDocument {
+  schema_version: number;
+  template: string;
+  theme: CvTheme;
+  header: CvHeader;
+  sections: CvSection[];
+}
+
+export interface CvDocumentResponse {
+  scope: string;
+  version: number;
+  document: CvDocument;
+}
+
+export interface CvVersion {
+  version: number;
+  author: "user" | "agent";
+  created_at: string | null;
+}
+
+export interface CvVersionDetail extends CvVersion {
+  document: CvDocument;
+  tex: string;
+}
+
+export interface CvCompileResult {
+  scope: string;
+  version: number;
+  pages: number;
+  pdf_url: string;
+}
+
+/* Tailor + CV Review (Phase 5) — mirrors jobpilot/tailor/{schema,diff}.py ---- */
+
+export type RequirementKind = "must_have" | "nice_to_have" | "soft";
+export type RequirementStatus = "HAVE" | "PARTIAL" | "MISSING";
+
+export interface TailorRequirement {
+  text: string;
+  kind: RequirementKind;
+  status: RequirementStatus;
+  evidence: string;
+}
+
+export interface TailorChange {
+  section: string;
+  what: string;
+  reason: string;
+}
+
+export interface TailorPlan {
+  plan_version: number;
+  match_score: number;
+  requirements: TailorRequirement[];
+  summary: string;
+  section_order: string[];
+  changes: TailorChange[];
+}
+
+export type DiffStatus = "rewritten" | "hidden" | "reordered" | "trimmed" | "unchanged";
+
+export interface SectionDiff {
+  key: string;
+  title: string;
+  status: DiffStatus;
+  notes: string[];
+  before: string | null;
+  after: string | null;
+}
+
+export interface CvDiff {
+  order_changed: boolean;
+  order_before: string[];
+  order_after: string[];
+  sections: SectionDiff[];
+}
+
+export interface TailorResult {
+  job_id: string;
+  version: number;
+  round: number;
+  attempts: number;
+  pages: number | null;
+  match_score: number;
+  plan: TailorPlan;
+  diff: CvDiff;
+}
+
+export interface ReviewData {
+  job_id: string;
+  version: number;
+  author: "user" | "agent" | null;
+  created_at: string | null;
+  match_score: number | null;
+  pages: number | null;
+  round: number;
+  instruction: string | null;
+  plan: TailorPlan | null;
+  diff: CvDiff | null;
+  gaps: TailorRequirement[];
+}
+
+/* Apply + Applications board (Phase 6) — mirrors jobpilot/apply/ -------------- */
+
+export type ApplyChannel = "email" | "portal" | "external";
+// A 200 from /apply does not mean anything was sent — read the result.
+export type ApplyResult = "success" | "dry_run" | "awaiting_user" | "failed";
+
+export interface EmailSummary {
+  to: string;
+  intended_to: string | null;
+  redirected: boolean;
+  subject: string;
+  from: string;
+  attachments: string[];
+  dry_run: boolean;
+  body_preview: string;
+}
+
+export interface HandoffSummary {
+  url: string;
+  cv_path: string | null;
+  fields: Record<string, string>;
+  prefilled: boolean;
+  note: string;
+}
+
+export interface ApplyOutcome {
+  job_id: string;
+  channel: ApplyChannel;
+  result: ApplyResult;
+  detail: string;
+  application_id: number | null;
+  email: EmailSummary | null;
+  handoff: HandoffSummary | null;
+}
+
+export interface Application {
+  id: number;
+  job_id: string;
+  job_title: string;
+  company: string;
+  job_status: JobStatus;
+  channel: ApplyChannel | null;
+  result: ApplyResult | null;
+  error_msg: string | null;
+  submitted_at: string | null;
+  created_at: string | null;
+  cv_pdf_path: string | null;
+  apply_target: string | null;
+  meta: { email?: EmailSummary; handoff?: HandoffSummary };
+}
+
+export interface ApplySettings {
+  email_enabled: boolean;
+  email_dry_run: boolean;
+  email_test_recipient: string;
+  email_from: string;
+  email_blocker: string;
+  portal_prefill: boolean;
+}
+
+/* Orchestration (Phase 8) — mirrors jobpilot/orchestrator.py ----------------- */
+
+export type TaskStatus = "queued" | "running" | "done" | "failed";
+
+export interface CrawlSiteResult {
+  source: string;
+  ok: boolean;
+  error: string | null;
+  fetched: number;
+  inserted: number;
+  updated: number;
+  duplicates: number;
+  filtered: number;
+  fresh: number;
+}
+
+export interface Task {
+  id: string;
+  kind: string;
+  label: string;
+  job_id: string | null;
+  status: TaskStatus;
+  progress: string;
+  result: { sites?: CrawlSiteResult[]; totals?: Record<string, number>; query?: string };
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface RunRecord {
+  id: number;
+  kind: string;
+  started_at: string | null;
+  finished_at: string | null;
+  stats: Record<string, unknown>;
+  /** Jobs this crawl put in the database, counted from the jobs themselves. */
+  job_count: number;
+}
+
+export interface SourceSetting {
+  key: string;
+  tier: number;
+  enabled: boolean;
+}
+
+export interface Settings {
+  app: { timezone: string; edit_max_rounds: number };
+  crawl: {
+    jobs_per_site: number;
+    fresh_hours: number;
+    match_score_min: number;
+    stacks: string[];
+    exclude_keywords: string[];
+    rate_limit_seconds: [number, number];
+  };
+  sources: SourceSetting[];
+  apply: {
+    email: {
+      enabled: boolean;
+      dry_run: boolean;
+      test_recipient: string;
+      from_addr: string;
+      from_name: string;
+      method: string;
+      subject_template: string;
+    };
+    portal_prefill: boolean;
+  };
+  cv: { master_dir: string; out_dir: string; docker_image: string; theme: string };
+}
+
+export interface JobInput {
+  url?: string;
+  title: string;
+  company: string;
+  location?: string | null;
+  salary?: string | null;
+  description_md?: string;
+  skills?: string[];
+  apply_channel?: string;
+  apply_target?: string | null;
+}
+
+// Pipeline order for the funnel (PLAN.md §4 state machine).
+export const FUNNEL_ORDER: JobStatus[] = [
+  "DISCOVERED",
+  "SHORTLISTED",
+  "TAILORING",
+  "REVIEW",
+  "APPROVED",
+  "SUBMITTING",
+  "SUBMITTED",
+];
+
+/** One crawl's scope. All optional; omitted fields fall back to Settings. */
+export interface CrawlRequest {
+  query?: string;
+  sources?: string[];
+  limit?: number;
+}
+
+/** A source as the crawl form sees it. */
+export interface CrawlSource {
+  key: string;
+  /** Turned on in Settings. */
+  enabled: boolean;
+  /** A scraper is actually registered for it — enabled but not ready would
+      produce a crawl that silently does nothing. */
+  ready: boolean;
+}
+
+/** Everything the crawl setup form needs, straight from the backend. */
+export interface CrawlSetupInfo {
+  /** Technologies from your CV, most-supported first. */
+  tech: string[];
+  /** Job titles from your experience, seniority stripped. */
+  roles: string[];
+  /** The stacks configured in Settings. */
+  stacks: string[];
+  /** What a crawl searches for when you type nothing. */
+  default_query: string;
+  jobs_per_site: number;
+  sources: CrawlSource[];
+}

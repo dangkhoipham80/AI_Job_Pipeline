@@ -1,0 +1,8 @@
+\cvsection{<< s.title|tex >>}
+\begin{cvempty}
+    \begin{cvitems}
+<% for it in s.items %>
+        \item{<% if it.label %>\textbf{<< it.label|tex >>}: <% endif %><< it.text|tex >><% if it.date %>\hfill\entrysimpledatestyle{<< it.date|tex >>}<% endif %>}
+<% endfor %>
+    \end{cvitems}
+\end{cvempty}

@@ -1,0 +1,69 @@
+# ---- JobPilot / Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+_wheeltest/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets & local config. Only the *.example templates are tracked; every file
+# that holds a real credential must match a rule here.
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.json
+.claude/settings.local.json
+# Scratch dir used for live end-to-end verification runs (throwaway DBs, PDFs,
+# captured emails) — never part of the project.
+.verify/
+
+# Runtime data
+jobpilot/store/raw/
+out/
+*.sqlite
+*.db
+pgdata/
+
+# ---- Web (Node) ----
+node_modules/
+web/dist/
+*.tsbuildinfo
+web/.vite/
+npm-debug.log*
+yarn-error.log*
+
+# ---- Your CV (personal data — lives in the database, never in git) ----
+# The app ships no CV content: `cv_versions` is the source of truth and CV
+# Studio reads/writes it through the API. These are your local working copies.
+/cv.tex
+/cv.pdf
+/resume/
+/resume.tex
+/resume.png
+
+# ---- LaTeX build artifacts (generated CVs) ----
+out/**/*.aux
+out/**/*.log
+out/**/*.out
+# Root LaTeX aux (regenerated on build; the .pdf deliverable stays tracked)
+/cv.aux
+/cv.log
+/cv.out
+/resume.aux
+/resume.log
+/resume.out
+/missfont.log
+
+# ---- Editor / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,56 @@
+# JobPilot non-secret config. Secrets live in .env (see .env.example).
+# Edit here or later via the Settings page (Phase 4+).
+
+app:
+  timezone: Asia/Ho_Chi_Minh
+  edit_max_rounds: 3          # max CV re-tailor rounds per job (K in SKILL.md)
+
+crawl:
+  jobs_per_site: 10           # "crawl ~10 job/site" per the MVP spec
+  fresh_hours: 48             # jobs newer than this get the 🔥 flag
+  rate_limit_seconds: [2.0, 5.0]   # polite delay range between requests
+  match_score_min: 0.30       # min match to surface a job on the dashboard
+  # Stack alerts — crawler filters jobs to these (Java backend focus for now).
+  stacks:
+    - "Java"
+    - "Spring Boot"
+    - "Backend"
+    - "Microservices"
+  # Drop jobs whose title/JD scream out-of-scope.
+  exclude_keywords:
+    - "Senior"
+    - "Lead"
+    - "Manager"
+    - ".NET"
+    - "PHP"
+
+# Sources — pluggable. tier1 = MVP. Enable more later (see PLAN.md §5.1.1).
+sources:
+  - { key: itviec,       tier: 1, enabled: true }   # MVP source (Phase 3)
+  - { key: topcv,        tier: 1, enabled: false }  # scaffold — enable once parser filled
+  - { key: vietnamworks, tier: 1, enabled: false }  # scaffold — enable once parser filled
+  - { key: topdev,       tier: 1, enabled: false }
+  # LinkedIn arrives through Job Alert emails in YOUR inbox, not by crawling —
+  # linkedin.com/robots.txt disallows automated access to its job pages.
+  # Needs IMAP_* in .env. See CLAUDE.md "LinkedIn qua Job Alerts".
+  - { key: linkedin,     tier: 1, enabled: true }
+  # tier2/tier3 (careerviet, glints, remoteok, ATS adapters...) added in later phases.
+
+apply:
+  # Email is the only full-auto channel. Three independent gates, all on by
+  # default — turn them off one at a time as you gain trust (PLAN.md §9).
+  email:
+    enabled: false            # gate 1: nothing is sent at all while false
+    dry_run: true             # gate 2: build + record the message, never send
+    test_recipient: ""        # gate 3: deliver here instead of the employer
+    method: smtp              # smtp (works with a Gmail app password) | gmail
+    from_addr: ""
+    from_name: ""
+    subject_template: "Application for {title} — {name}"
+  portal_prefill: true        # portal jobs: pre-fill then hand off to user
+
+cv:
+  master_dir: resume          # Master CV source of truth
+  out_dir: out                # tailored CVs land in out/<job_id>/
+  docker_image: csmith/awesome-cv-builder
+  theme: awesome-red          # default Awesome-CV color theme

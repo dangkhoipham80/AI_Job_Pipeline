@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* "Flight deck" tokens — warm-neutral surfaces + marigold accent.
+   Chart/viz roles reuse the validated dataviz palette (see charts/palette.ts).
+
+   Colours are stored as RGB *channels*, not hex, so Tailwind can compose
+   `rgb(var(--x) / <alpha-value>)` and opacity modifiers like `bg-accent/10`
+   actually render. With hex in the var they compiled to invalid CSS and were
+   silently dropped. --grid / --viz-surface stay hex: charts read them back as
+   colour strings via getComputedStyle. */
+:root {
+  --bg: 244 243 238;
+  --surface: 255 255 255;
+  --surface-2: 250 249 245;
+  --border: 229 227 218;
+  --ink: 22 21 15;
+  --ink-muted: 109 107 98;
+  --accent: 217 130 43;
+  --accent-hover: 192 110 30;
+  --accent-ink: 255 255 255;
+  --live: 15 157 99;
+  --good: 12 163 12;
+  --critical: 208 59 59;
+  --grid: #e1e0d9;
+  --viz-surface: #ffffff;
+}
+
+.dark {
+  --bg: 13 13 11;
+  --surface: 26 26 24;
+  --surface-2: 22 22 20;
+  --border: 42 42 38;
+  --ink: 244 243 236;
+  --ink-muted: 157 155 144;
+  --accent: 237 160 72;
+  --accent-hover: 242 173 94;
+  --accent-ink: 26 18 7;
+  --live: 22 184 119;
+  --good: 12 163 12;
+  --critical: 230 103 103;
+  --grid: #2c2c2a;
+  --viz-surface: #1a1a19;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Recessive scrollbars so data stays the loudest thing on the page. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}

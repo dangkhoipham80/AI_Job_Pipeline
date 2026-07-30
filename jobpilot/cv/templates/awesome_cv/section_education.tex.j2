@@ -1,0 +1,21 @@
+\cvsection{<< s.title|tex >>}
+\begin{cventries}
+<% for e in s.entries %>
+
+  \cventry
+  {<< e.degree|tex >>}
+  {<< e.institution|tex >>}
+  {<< e.location|tex >>}
+  {<< e.date|tex >>}
+  {
+<% if e.items %>
+    \begin{cvitems}
+<% for it in e.items %>
+      \item {<< it|tex >>}
+<% endfor %>
+    \end{cvitems}
+<% endif %>
+  }
+<% endfor %>
+
+\end{cventries}

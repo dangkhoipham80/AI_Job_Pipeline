@@ -1,0 +1,23 @@
+# Local infra for JobPilot. Postgres only (app runs on host for now).
+# Usage: docker-compose up -d postgres
+services:
+  postgres:
+    image: postgres:16
+    container_name: jobpilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jobpilot
+      POSTGRES_PASSWORD: jobpilot
+      POSTGRES_DB: jobpilot
+    ports:
+      - "127.0.0.1:5432:5432"   # bind localhost only — never expose DB publicly
+    volumes:
+      - jobpilot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobpilot -d jobpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  jobpilot_pgdata:
