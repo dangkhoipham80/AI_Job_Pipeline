@@ -113,3 +113,40 @@ def test_robots_disallow_and_allow():
 def test_robots_missing_file_allows():
     policy = RobotsPolicy("bot", fetch=lambda url: None, allow_on_error=True)
     assert policy.allowed("https://x.com/anything") is True
+
+
+def test_normalize_clamps_fields_to_column_widths():
+    """Postgres raises StringDataRightTruncation mid-flush on an overlong value
+    and rolls back the entire crawl, so one runaway field would cost every job in
+    the batch. Truncating keeps the damage to that field."""
+    from jobpilot.config import ApplyCfg, Config, CrawlCfg, CvCfg
+    from jobpilot.crawler.normalize import normalize
+    from jobpilot.crawler.types import RawJob
+
+    cfg = Config(crawl=CrawlCfg(stacks=[]), apply=ApplyCfg(), cv=CvCfg())
+    raw = RawJob(
+        source="topcv",
+        native_id="1",
+        url="https://x/1",
+        title="T" * 900,
+        company="C" * 900,
+        location="L" * 900,
+        salary="S" * 900,
+    )
+    nj = normalize(raw, cfg)
+    assert len(nj.title) == 256
+    assert len(nj.company) == 256
+    assert len(nj.location) == 256
+    assert len(nj.salary) == 128
+
+
+def test_normalize_keeps_none_apart_from_empty_string():
+    """`salary=None` means "not disclosed"; "" would read as a published blank."""
+    from jobpilot.config import ApplyCfg, Config, CrawlCfg, CvCfg
+    from jobpilot.crawler.normalize import normalize
+    from jobpilot.crawler.types import RawJob
+
+    cfg = Config(crawl=CrawlCfg(stacks=[]), apply=ApplyCfg(), cv=CvCfg())
+    nj = normalize(RawJob(source="s", native_id="1", url="u", title="t"), cfg)
+    assert nj.salary is None
+    assert nj.location is None

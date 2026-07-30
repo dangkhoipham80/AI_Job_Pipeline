@@ -125,6 +125,18 @@ def title_excluded(title: str, exclude_keywords: list[str]) -> bool:
 # --------------------------------------------------------------------------- #
 # normalization
 # --------------------------------------------------------------------------- #
+def _fit(value: str | None, limit: int) -> str | None:
+    """Clean ``value`` and clamp it to a column width, preserving ``None``.
+
+    ``None`` must stay ``None`` — for ``salary`` it is the meaningful "not
+    disclosed", and returning ``""`` would read as a published empty salary.
+    """
+    if value is None:
+        return None
+    cleaned = clean_text(value)
+    return cleaned[:limit]
+
+
 @dataclass
 class NormalizedJob:
     id: str
@@ -180,10 +192,17 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
         id=raw.id,
         source=raw.source,
         url=raw.url,
-        title=clean_text(raw.title)[:256],
-        company=clean_text(raw.company)[:256],
-        location=raw.location,
-        salary=raw.salary,
+        # Clamped to the `jobs` column widths. A scraper that grabs too much is a
+        # scraper bug, but on Postgres an overlong value raises
+        # StringDataRightTruncation mid-flush and rolls back the *whole* crawl —
+        # one bad field costing every job in the batch. Truncating keeps the
+        # damage local and visible (payload still holds the full text), which is
+        # the graceful-per-site-failure rule applied per field. SQLite ignores
+        # these widths, so only a real Postgres run ever surfaces it.
+        title=_fit(raw.title, 256),
+        company=_fit(raw.company, 256),
+        location=_fit(raw.location, 256),
+        salary=_fit(raw.salary, 128),
         level=level,
         posted_at=posted_at,
         apply_channel=raw.apply_channel,

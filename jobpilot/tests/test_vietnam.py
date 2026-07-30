@@ -156,3 +156,23 @@ def test_rename_annotation_is_stripped_mid_string_too():
     fail to read as a location."""
     assert looks_like_city("Hà Nội (mới), Hồ Chí Minh")
     assert find_city(["Hà Nội (mới), Hồ Chí Minh"]) is not None
+
+
+def test_a_whole_jd_is_never_a_salary():
+    """A caller that hands over a flattened JD must not get it back as the salary.
+
+    This happened: TopCV's fallback passed `el_text(body)`, a 6.7 KB blob, and a
+    "15 triệu" buried in the benefits made the entire blob the salary. On Postgres
+    the VARCHAR(128) column then aborted the whole crawl transaction, so one bad
+    field cost every job in the batch. SQLite ignores the width and showed nothing.
+    """
+    blob = (
+        "Tổng quan Gửi tôi việc làm tương tự Yêu cầu: 2 năm kinh nghiệm chuyên môn "
+        "Đại Học trở lên Quyền lợi: Bảo hiểm xã hội Thu nhập 15 triệu trở lên "
+        "Thoả thuận Hà Nội Ứng tuyển Cập nhật 1 tuần trước " * 20
+    )
+    assert len(blob) > 1000
+    assert parse_salary(blob) is None
+    assert find_salary([blob]) is None
+    # The short label it was supposed to find still works.
+    assert find_salary(["Thoả thuận", "15 - 25 triệu"]) == "15 - 25 triệu"
