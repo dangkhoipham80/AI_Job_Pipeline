@@ -27,9 +27,9 @@ crawl:
 # Sources — pluggable. tier1 = MVP. Enable more later (see PLAN.md §5.1.1).
 sources:
   - { key: itviec,       tier: 1, enabled: true }   # MVP source (Phase 3)
-  - { key: topcv,        tier: 1, enabled: false }  # scaffold — enable once parser filled
-  - { key: vietnamworks, tier: 1, enabled: false }  # scaffold — enable once parser filled
-  - { key: topdev,       tier: 1, enabled: false }
+  - { key: topcv,        tier: 1, enabled: true }   # server-rendered + JSON-LD
+  - { key: vietnamworks, tier: 1, enabled: true }   # needs Playwright: jobs load via XHR
+  - { key: topdev,       tier: 1, enabled: false }  # no scraper yet — see CLAUDE.md
   # LinkedIn arrives through Job Alert emails in YOUR inbox, not by crawling —
   # linkedin.com/robots.txt disallows automated access to its job pages.
   # Needs IMAP_* in .env. See CLAUDE.md "LinkedIn qua Job Alerts".

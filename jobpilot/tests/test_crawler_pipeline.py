@@ -162,3 +162,27 @@ def test_jobs_per_site_limit_respected(session_factory, limit, expected):
     with session_factory() as db:
         report = run_crawl([_fixture(_pages())], cfg, db, now=NOW)
     assert report.totals.fetched == expected
+
+
+def test_zero_hits_is_warned_about_not_reported_as_a_quiet_success(caplog):
+    """A parser whose selectors stopped matching returns [] and the crawl then
+    "succeeds" with nothing to show — indistinguishable from a query that simply
+    had no results. PLAN §10 wants that visible ("cảnh báo khi 0 job")."""
+    scraper = _fixture({SEARCH_URL: "<html>redesigned, no job links</html>"})
+    with caplog.at_level("WARNING"):
+        assert scraper.crawl("java", limit=10) == []
+    assert any("0 hits" in r.getMessage() for r in caplog.records)
+
+
+def test_fewer_hits_than_requested_is_warned_about(caplog):
+    """VietnamWorks lazy-loads: one fetch renders ~9-20 cards, so a limit above
+    that is silently unsatisfiable from a single page."""
+    with caplog.at_level("WARNING"):
+        _fixture(_pages()).crawl("java", limit=10)
+    assert any("wanted 10" in r.getMessage() for r in caplog.records)
+
+
+def test_a_full_page_does_not_warn(caplog):
+    with caplog.at_level("WARNING"):
+        _fixture(_pages()).crawl("java", limit=3)
+    assert not [r for r in caplog.records if "wanted" in (r.getMessage())]

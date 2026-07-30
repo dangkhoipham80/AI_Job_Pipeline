@@ -86,6 +86,27 @@ class BaseScraper(ABC):
         """
         search_html = self._fetch(self.search_url(query))
         hits = self.parse_search(search_html)
+        # A parser whose selectors stopped matching returns [] and the crawl then
+        # reports success with nothing to show — the exact failure PLAN §10 calls
+        # out ("cảnh báo khi 0 job"). It is indistinguishable from a genuinely
+        # empty result set, so say so loudly instead of logging it as normal.
+        if not hits:
+            log.warning(
+                "[%s] search page parsed to 0 hits for query=%r — either the query "
+                "has no results or the selectors no longer match the site",
+                self.source,
+                query,
+            )
+        elif limit is not None and len(hits) < limit:
+            # e.g. VietnamWorks lazy-loads: one fetch renders ~9-20 cards.
+            log.warning(
+                "[%s] only %d hit(s) for query=%r, wanted %d — the listing page may "
+                "load the rest on scroll",
+                self.source,
+                len(hits),
+                query,
+                limit,
+            )
         if limit is not None:
             hits = hits[:limit]
         log.info("[%s] %d hit(s) for query=%r", self.source, len(hits), query)
