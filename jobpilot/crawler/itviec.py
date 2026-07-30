@@ -10,15 +10,15 @@ than as a crawl that silently returns nothing.
 
 from __future__ import annotations
 
-import re
 from urllib.parse import quote_plus, urlsplit
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from jobpilot.crawler.base import BaseScraper
-from jobpilot.crawler.text import clean_text
+from jobpilot.crawler.text import el_text, first_match, leaf_texts
 from jobpilot.crawler.types import RawJob, SearchHit
+from jobpilot.crawler.vietnam import CITIES, find_city, find_posted, find_salary
 
 BASE_URL = "https://itviec.com"
 
@@ -27,52 +27,7 @@ BASE_URL = "https://itviec.com"
 # keeping the name in one constant means the next rename is a one-line fix.
 SLUG_ATTR = "data-search--job-selection-job-slug-value"
 
-# Where ITviec jobs actually are. Used to recognise a location by its value,
-# because the markup around it carries no usable class (see `_location`).
-CITIES = (
-    "Ho Chi Minh",
-    "Ha Noi",
-    "Hanoi",
-    "Da Nang",
-    "Can Tho",
-    "Hai Phong",
-    "Nha Trang",
-    "Hue",
-    "Binh Duong",
-    "Dong Nai",
-    "Bac Ninh",
-    "Quang Ninh",
-    "Remote",
-)
-
-_POSTED_RE = re.compile(r"\b(just now|today|yesterday|\d+\s*(minute|hour|day|week|month))", re.I)
-
-# ITviec puts salary behind a login wall. That placeholder is not a salary, and
-# storing it would make every ITviec job look like it disclosed one.
-_SALARY_HIDDEN = re.compile(r"sign in to view salary", re.I)
-_SALARY_RE = re.compile(r"(\$|USD|VND|triệu|million)\s*[\d,.]|[\d,.]+\s*(USD|VND)", re.I)
-
-
-def _text(el: Tag | None) -> str:
-    return clean_text(el.get_text(" ", strip=True)) if el else ""
-
-
-def _first(soup, *selectors: str) -> Tag | None:
-    for sel in selectors:
-        found = soup.select_one(sel)
-        if found is not None:
-            return found
-    return None
-
-
-def _leaves(root: Tag, max_len: int = 60):
-    """Short text nodes with no element children — the leaf labels on a card."""
-    for el in root.find_all(True):
-        if el.find(True):
-            continue
-        text = clean_text(el.get_text(" ", strip=True))
-        if text and len(text) <= max_len:
-            yield text
+__all__ = ["ITViecScraper", "BASE_URL", "SLUG_ATTR", "CITIES"]
 
 
 def _company(card: Tag) -> str:
@@ -83,7 +38,7 @@ def _company(card: Tag) -> str:
     an empty string.
     """
     for link in card.select('a[href*="/companies/"]'):
-        name = _text(link)
+        name = el_text(link)
         if name:
             return name
     return ""
@@ -97,20 +52,15 @@ def _location(card: Tag) -> str | None:
     actively dangerous here: ``[class*=city]`` matches ``opacity-50`` and quietly
     returns whatever that element says. Vietnamese job locations are a small
     closed set, so recognising the value is both simpler and more stable than
-    guessing at the markup around it.
+    guessing at the markup around it — see :mod:`jobpilot.crawler.vietnam`, which
+    now holds that closed set for every VN source.
     """
-    for text in _leaves(card, max_len=40):
-        if any(city in text for city in CITIES):
-            return text
-    return None
+    return find_city(leaf_texts(card, max_len=40))
 
 
 def _posted(card: Tag) -> str | None:
-    """"Posted 8 hours ago" / "3 days ago" — again matched on shape, not class."""
-    for text in _leaves(card, max_len=40):
-        if _POSTED_RE.search(text):
-            return text
-    return None
+    """ "Posted 8 hours ago" / "3 days ago" — again matched on shape, not class."""
+    return find_posted(leaf_texts(card, max_len=40))
 
 
 def _salary(root: Tag) -> str | None:
@@ -120,12 +70,7 @@ def _salary(root: Tag) -> str | None:
     stays logged out. Returning None is the honest answer — the alternative is
     every ITviec job appearing to disclose a salary it never did.
     """
-    for text in _leaves(root, max_len=60):
-        if _SALARY_HIDDEN.search(text):
-            return None
-        if _SALARY_RE.search(text):
-            return text
-    return None
+    return find_salary(leaf_texts(root, max_len=60))
 
 
 class ITViecScraper(BaseScraper):
@@ -168,7 +113,7 @@ class ITViecScraper(BaseScraper):
                 SearchHit(
                     native_id=slug,
                     url=f"{BASE_URL}/it-jobs/{slug}",
-                    title=_text(_first(card, "h3", "h2", "h4"))[:200],
+                    title=el_text(first_match(card, "h3", "h2", "h4"))[:200],
                     company=_company(card),
                     location=_location(card),
                     posted_raw=_posted(card),
@@ -179,23 +124,23 @@ class ITViecScraper(BaseScraper):
     def parse_detail(self, html: str, hit: SearchHit) -> RawJob:
         soup = BeautifulSoup(html, "html.parser")
 
-        title = _text(_first(soup, "h1")) or hit.title
+        title = el_text(first_match(soup, "h1")) or hit.title
         # The card is the trusted source for these three. The detail page only
         # fills a gap: its markup is the same class soup as the cards, and the
         # loose selectors that used to read it here returned page furniture —
         # `[class*=city]` matching `opacity-50` gave every job the location
         # "Hiring", and `[class*=salary]` picked up a promo banner.
-        company = hit.company or _text(_first(soup, ".employer-name", ".company-name"))
+        company = hit.company or el_text(first_match(soup, ".employer-name", ".company-name"))
         location = hit.location or _location(soup)
         salary = hit.salary or _salary(soup)
 
         skills = []
         for tag in soup.select(".itag, [class*=tag-list] a, [class*=skill] a"):
-            s = _text(tag)
+            s = el_text(tag)
             if s and s not in skills:
                 skills.append(s)
 
-        body = _first(
+        body = first_match(
             soup,
             ".job-description",
             "#job-description",
@@ -213,7 +158,7 @@ class ITViecScraper(BaseScraper):
             company=company,
             location=location or None,
             salary=salary or None,
-            posted_raw=_text(_first(soup, "[class*=posted]", "[class*=date]")) or None,
+            posted_raw=el_text(first_match(soup, "[class*=posted]", "[class*=date]")) or None,
             skills=skills[:20],
             description_html=description_html,
             apply_channel="portal",  # ITviec applications happen on-site → human-in-the-loop
