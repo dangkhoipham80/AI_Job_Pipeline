@@ -232,3 +232,25 @@ def test_title_anchor_prefers_the_titled_heading_over_an_earlier_one():
     (hit,) = TopCVScraper().parse_search(html)
     assert hit.title == "Real Java Developer"
     assert hit.url == "https://www.topcv.vn/viec-lam/real-job/2254799.html"
+
+
+def test_salary_is_never_borrowed_from_a_neighbouring_job():
+    """`.box-job-information-detail` also holds TopCV's "việc làm tương tự" panel,
+    whose sibling cards carry their own salaries once the page hydrates. Scanning
+    that body gave two unrelated roles the same "20 - 60 triệu". Salary may only
+    come from this job's own card or its baseSalary."""
+    detail = """
+    <html><body>
+      <h1>Middle Java Developer</h1>
+      <div class="box-job-information-detail">
+        <h2>Mô tả công việc</h2><p>Build services.</p>
+        <div class="similar-jobs"><h3>Việc làm tương tự</h3>
+          <div class="job-item-search-result"><label class="title-salary">20 - 60 triệu</label>
+            <span class="city-text">Hà Nội</span></div>
+        </div>
+      </div>
+    </body></html>
+    """
+    hit = SearchHit(native_id="2235088", url="https://www.topcv.vn/x", company="Viettel")
+    raw = TopCVScraper().parse_detail(detail, hit)
+    assert raw.salary is None  # this job published none; the neighbour's is not ours

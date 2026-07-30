@@ -25,7 +25,7 @@ from jobpilot.crawler.base import BaseScraper
 from jobpilot.crawler.jsonld import parse_job_posting
 from jobpilot.crawler.text import clean_text, el_text, first_match, strip_query
 from jobpilot.crawler.types import RawJob, SearchHit
-from jobpilot.crawler.vietnam import clean_city, find_salary, parse_salary
+from jobpilot.crawler.vietnam import clean_city, parse_salary
 
 BASE_URL = "https://www.topcv.vn"
 
@@ -188,10 +188,15 @@ class TopCVScraper(BaseScraper):
         # The card's city beats the JSON-LD address, which mixes in ward/street.
         location = hit.location or clean_city(posting.location if posting else None)
 
+        # Salary comes only from sources that unambiguously belong to *this* job:
+        # its own search card, or the page's baseSalary. There is deliberately no
+        # scan of the detail body — `.box-job-information-detail` also contains
+        # TopCV's "việc làm tương tự" panel, whose sibling cards carry their own
+        # salaries once the page hydrates, so scanning it attributed a neighbour's
+        # figure to this job (two unrelated roles both came back "20 - 60 triệu").
+        # When neither source publishes one, None is the honest answer — the same
+        # call as ITviec's login-walled salary.
         salary = hit.salary or (posting.salary if posting else None)
-        if not salary:
-            body = soup.select_one(".box-job-information-detail")
-            salary = find_salary([el_text(body)]) if body else None
 
         skills = list(posting.skills) if posting else []
         if not skills:

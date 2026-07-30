@@ -216,6 +216,12 @@ def is_undisclosed_salary(text: str | None) -> bool:
     return any(word in low for word in _UNDISCLOSED)
 
 
+# A published salary is a label, not a paragraph. "20 - 60 triệu VND/month" and
+# "$ 1,500-2,500 /tháng" are the shapes; anything much longer is a block of page
+# text that merely happens to contain a number.
+MAX_SALARY_LEN = 80
+
+
 def parse_salary(text: str | None) -> str | None:
     """A salary string, or ``None`` when the board is withholding it.
 
@@ -223,13 +229,16 @@ def parse_salary(text: str | None) -> str | None:
     writes things like "Cạnh tranh từ 15-25 triệu", and checking the word first
     threw away a range the employer did publish. Only a label with no figure at
     all counts as withheld.
+
+    The length guard is what keeps a caller that hands over a whole JD from
+    getting the whole JD back as the "salary" — that happened, and because the
+    column is ``VARCHAR(128)`` it aborted the entire crawl transaction on
+    Postgres rather than spoiling one field.
     """
     s = clean_text(text)
-    if not s:
+    if not s or len(s) > MAX_SALARY_LEN:
         return None
-    if _SALARY_RE.search(s):
-        return s
-    return None
+    return s if _SALARY_RE.search(s) else None
 
 
 def find_salary(texts: list[str] | tuple[str, ...]) -> str | None:
