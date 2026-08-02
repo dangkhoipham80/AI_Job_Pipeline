@@ -290,6 +290,7 @@ CV_Template/
 - **Phase 9 — TopCV + VietnamWorks chạy thật**: parser schema.org `JobPosting` dùng chung, nhận diện field theo giá trị (`crawler/vietnam.py`).
 - **Phase 10 — Tailor + apply rời request path**: `POST /tailor|edit|apply` trả 202 + task, tiến độ qua WS.
 - **Phase 11 — Phân trang + nguồn tier-2**: `BaseScraper.search()` đi nhiều trang (`crawl.max_pages`) với guard "site bỏ qua `?page=`"; `FeedScraper` + `HttpFetcher` cho nguồn có feed chính thức; thêm WeWorkRemotely + Arbeitnow.
+- **Phase 12 — ATS adapter (tier 3)**: `crawler/ats.py` — Greenhouse + Lever qua board JSON API công khai; "một trang = một công ty"; thêm công ty = 1 từ trong `ats:` của config. `rank_hits` xếp hạng theo số từ khoá khớp để `limit` không bị tiêu vào job xa đề.
 
 **Định nghĩa "xong" cho MVP demo (theo yêu cầu user)**: crawl ~10 job từ 3 site → hiện trên **Web Dashboard** (+ thông báo Slack) → user chọn → tailor → **review PDF+diff** (duyệt/sửa) → email/portal apply → báo lỗi nếu fail. Slack đồng bộ cùng state.
 

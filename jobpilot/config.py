@@ -56,6 +56,21 @@ class SourceCfg(BaseModel):
     enabled: bool = False
 
 
+class AtsCfg(BaseModel):
+    """Company boards to read per ATS platform (PLAN §5.1.1 tier 3).
+
+    A token is the company's slug in its careers-page URL — the ``gitlab`` in
+    ``job-boards.greenhouse.io/gitlab``. Adding a company is one word here;
+    there is no per-company code.
+    """
+
+    greenhouse: list[str] = Field(default_factory=list)
+    lever: list[str] = Field(default_factory=list)
+
+    def boards_for(self, key: str) -> list[str]:
+        return list(getattr(self, key, []) or [])
+
+
 class EmailCfg(BaseModel):
     """Email is the one channel allowed to send without a second confirmation
     (CLAUDE.md rule 2), so it is gated three ways: off by default, dry-run by
@@ -98,6 +113,7 @@ class Config(BaseModel):
     app: AppCfg = Field(default_factory=AppCfg)
     crawl: CrawlCfg = Field(default_factory=CrawlCfg)
     sources: list[SourceCfg] = Field(default_factory=list)
+    ats: AtsCfg = Field(default_factory=AtsCfg)
     apply: ApplyCfg = Field(default_factory=ApplyCfg)
     cv: CvCfg = Field(default_factory=CvCfg)
 

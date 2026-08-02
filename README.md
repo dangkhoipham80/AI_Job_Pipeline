@@ -96,9 +96,24 @@ line of config (`PLAN.md` §5.1.1).
 | **LinkedIn** | 1 | IMAP | Reads **Job Alert emails in your own inbox**. LinkedIn is never crawled |
 | **We Work Remotely** | 2 | RSS | One feed per category, full JD inline, no browser needed |
 | **Arbeitnow** | 2 | JSON API | Really paginated; mostly Germany/EU, descriptions often in German |
-| TopDev | 1 | — | Not implemented (see below) |
+| **Greenhouse** | 3 | Board JSON API | Any company on Greenhouse. Off by default — list the boards you follow |
+| **Lever** | 3 | Board JSON API | Any company on Lever. Off by default |
+| TopDev, Ashby | — | — | Not implemented (see below) |
 
 Tier-2 sources are remote/worldwide roles. Turn them off in Settings if you only want Vietnam.
+
+**Tier 3 — company career pages.** Most companies don't build a job board, they rent one, and a role
+usually appears there before it reaches any aggregator. One adapter reaches every company on a
+platform, so following a new company is one word in `config.yaml` — no code:
+
+```yaml
+ats:
+  greenhouse: [gitlab, grafanalabs, elastic]   # the slug in job-boards.greenhouse.io/<slug>
+  lever:      [palantir, spotify]              # the slug in jobs.lever.co/<slug>
+```
+
+Then enable `greenhouse` / `lever` in Settings. Each board is one request per crawl, so a long list
+is a slow crawl.
 
 **Sources deliberately not added.** Four remote-job feeds were evaluated for tier 2 and rejected —
 read `CLAUDE.md` → *"Nguồn tier-2 đã loại"* before adding one, so the checks aren't repeated:

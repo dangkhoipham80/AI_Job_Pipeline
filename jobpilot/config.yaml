@@ -45,7 +45,26 @@ sources:
   # rejected — see CLAUDE.md "Nguồn tier-2 đã loại" before adding one.
   - { key: weworkremotely, tier: 2, enabled: true }   # RSS, one feed per category
   - { key: arbeitnow,      tier: 2, enabled: true }   # JSON API, real ?page=
-  # tier3 (ATS adapters: Greenhouse/Lever/Ashby...) is a later phase.
+  # Tier 3 — company career pages. One adapter per ATS platform reaches every
+  # company on it, so adding a company is one word in `ats:` below (no code).
+  # Off by default: which companies you follow is a choice only you can make.
+  - { key: greenhouse,     tier: 3, enabled: false }
+  - { key: lever,          tier: 3, enabled: false }
+
+# Company boards to read for the tier-3 ATS sources above. A token is the
+# company's slug in its careers-page URL — the `gitlab` in
+# job-boards.greenhouse.io/gitlab, or the `palantir` in jobs.lever.co/palantir.
+# Each board costs one request per crawl, so a long list is a slow crawl.
+# The examples below were verified live; replace them with companies you'd
+# actually work for.
+ats:
+  greenhouse:
+    - gitlab          # 184 jobs, remote-heavy
+    - grafanalabs     # 142 jobs
+    - elastic         # 233 jobs
+  lever:
+    - palantir        # 302 jobs
+    - spotify         # 105 jobs
 
 apply:
   # Email is the only full-auto channel. Three independent gates, all on by

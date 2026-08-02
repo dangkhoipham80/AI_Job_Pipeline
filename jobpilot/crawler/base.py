@@ -82,6 +82,17 @@ class BaseScraper(ABC):
         """
         return True
 
+    def rank_hits(self, hits: list[SearchHit], query: str) -> list[SearchHit]:
+        """Order one page's hits best-first. Unchanged unless a source says otherwise.
+
+        A search-backed source already ranked its own results and knows more
+        about relevance than we do. Feed-backed sources hand back a whole board
+        in publication order, where ``limit`` would otherwise be spent on
+        whatever happens to sit at the top — see
+        :class:`jobpilot.crawler.feed.FeedScraper`.
+        """
+        return hits
+
     def default_fetcher(self) -> Fetcher:
         """The fetcher to use when none was injected. Browser by default."""
         from jobpilot.crawler.fetch import PlaywrightFetcher
@@ -187,7 +198,7 @@ class BaseScraper(ABC):
 
             seen_ids |= page_ids
             kept_ids.update(h.native_id for h in new)
-            hits.extend(new)
+            hits.extend(self.rank_hits(new, query))
             if limit is not None and len(hits) >= limit:
                 break
 

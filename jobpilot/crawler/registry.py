@@ -11,6 +11,7 @@ import logging
 from jobpilot.config import Config
 from jobpilot.crawler.base import BaseScraper, Fetcher
 from jobpilot.crawler.arbeitnow import ArbeitnowScraper
+from jobpilot.crawler.ats import GreenhouseScraper, LeverScraper
 from jobpilot.crawler.itviec import ITViecScraper
 from jobpilot.crawler.linkedin import LinkedInAlertsScraper
 from jobpilot.crawler.ratelimit import RateLimiter
@@ -31,7 +32,13 @@ SCRAPERS: dict[str, type[BaseScraper]] = {
     # -- tier 2: official feeds (no browser, no anti-bot) ------------------ #
     "arbeitnow": ArbeitnowScraper,
     "weworkremotely": WeWorkRemotelyScraper,
+    # -- tier 3: company career pages, one adapter per ATS platform -------- #
+    "greenhouse": GreenhouseScraper,
+    "lever": LeverScraper,
 }
+
+#: Sources whose job list comes from `ats.<key>` in config rather than a query.
+ATS_SOURCES = ("greenhouse", "lever")
 
 
 def build_scrapers(
@@ -66,12 +73,15 @@ def build_scrapers(
         if cls is None:
             log.warning("no scraper registered for source %r — skipping", src.key)
             continue
-        scrapers.append(
-            cls(
-                fetcher=fetcher,
-                rate_limiter=RateLimiter(low, high),
-                robots=RobotsPolicy(DEFAULT_USER_AGENT) if respect_robots else None,
-                max_pages=cfg.crawl.max_pages,
-            )
-        )
+        kwargs = {
+            "fetcher": fetcher,
+            "rate_limiter": RateLimiter(low, high),
+            "robots": RobotsPolicy(DEFAULT_USER_AGENT) if respect_robots else None,
+            "max_pages": cfg.crawl.max_pages,
+        }
+        # An ATS source has no search query — its "pages" are the company boards
+        # you listed, so it needs that list rather than a page ceiling.
+        if src.key in ATS_SOURCES:
+            kwargs["boards"] = cfg.ats.boards_for(src.key)
+        scrapers.append(cls(**kwargs))
     return scrapers

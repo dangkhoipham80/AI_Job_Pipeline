@@ -36,8 +36,8 @@ def tokens(text: str) -> set[str]:
     return set(_TOKEN_RE.findall((text or "").lower()))
 
 
-def parse_json_feed(text: str) -> dict:
-    """Parse a JSON feed body, with an error that says what actually arrived.
+def load_json(text: str):
+    """Parse a JSON body, with an error that says what actually arrived.
 
     A bare ``JSONDecodeError`` here is nearly always one of two things: the site
     answered with an HTML error page, or the scraper was handed a browser
@@ -45,9 +45,19 @@ def parse_json_feed(text: str) -> dict:
     recognise with the first bytes in the message.
     """
     try:
-        data = json.loads(text)
+        return json.loads(text)
     except ValueError as exc:
         raise ValueError(f"expected JSON, got {text[:80]!r}") from exc
+
+
+def parse_json_feed(text: str) -> dict:
+    """:func:`load_json`, for the feeds whose top level is an object.
+
+    Lever's board API answers with a bare array, so the array case is a
+    legitimate shape rather than an error — callers that expect one use
+    :func:`load_json` directly.
+    """
+    data = load_json(text)
     if not isinstance(data, dict):
         raise ValueError(f"expected a JSON object, got {type(data).__name__}")
     return data
@@ -111,3 +121,25 @@ class FeedScraper(BaseScraper):
         if not wanted:
             return True
         return bool(wanted & tokens(self.match_haystack(hit)))
+
+    def query_score(self, hit: SearchHit, query: str) -> int:
+        """How many distinct query words the hit answers."""
+        return len(tokens(query) & tokens(self.match_haystack(hit)))
+
+    def rank_hits(self, hits: list[SearchHit], query: str) -> list[SearchHit]:
+        """Best match first, so ``limit`` is spent on the closest jobs.
+
+        Any-word matching is deliberately generous, and on a big board that
+        generosity is expensive: querying "backend engineer java" against a
+        184-job Greenhouse board matched 44 postings, and the six that ``limit``
+        actually kept were "AI Engineer" and four "Customer Success Engineer"
+        roles — every one of them on the strength of the word *engineer* alone,
+        while the real "Backend Engineer" sat further down the board.
+
+        Filtering harder would have thrown away good jobs; ordering costs
+        nothing and puts the ones matching the most of the query first. Python's
+        sort is stable, so equally-good hits keep the source's own order.
+        """
+        if not tokens(query):
+            return hits
+        return sorted(hits, key=lambda h: -self.query_score(h, query))
