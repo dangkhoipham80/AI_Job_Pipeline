@@ -32,6 +32,9 @@ class JobOut(BaseModel):
     crawled_at: datetime | None
     # Which crawl discovered this job (null for hand-added ones).
     run_id: int | None = None
+    # Why the score is what it is, and whether the posting looks worth
+    # answering. Advisory only — nothing here filters a job out.
+    quality: dict | None = None
 
 
 class JobDetailOut(JobOut):

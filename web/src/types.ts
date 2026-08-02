@@ -11,6 +11,16 @@ export type JobStatus =
   | "FAILED"
   | "SKIPPED";
 
+/** Why a job scored what it scored, and whether the posting looks live. */
+export interface JobQuality {
+  /** Configured stacks this job mentions. */
+  matched: string[];
+  /** Configured stacks it doesn't. */
+  missing: string[];
+  /** Advisory only: no_jd | thin_jd | stale | undated. Never hides a job. */
+  flags: string[];
+}
+
 export interface Job {
   id: string;
   source: string;
@@ -28,6 +38,8 @@ export interface Job {
   crawled_at: string | null;
   /** Which crawl discovered this job (null when added by hand). */
   run_id: number | null;
+  /** Advisory: why the score, and whether the posting looks live. */
+  quality: JobQuality | null;
 }
 
 export interface JobDetail extends Job {

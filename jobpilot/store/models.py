@@ -85,6 +85,17 @@ class Job(Base):
     )
     edits: Mapped[list[Edit]] = relationship(back_populates="job", cascade="all, delete-orphan")
 
+    @property
+    def quality(self) -> dict | None:
+        """Advisory signals stashed in the payload at crawl time.
+
+        A property rather than a column: it is derived from fields already
+        stored, and FastAPI serializes ORM rows straight through
+        ``from_attributes``, so this is the one place both the list and the
+        detail response will pick it up without either route knowing.
+        """
+        return (self.payload or {}).get("quality")
+
 
 class Application(Base):
     __tablename__ = "applications"

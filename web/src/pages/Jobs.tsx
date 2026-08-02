@@ -6,7 +6,7 @@ import { useApi } from "@/hooks/useApi";
 import type { Job, JobStatus, JobsQuery } from "@/types";
 import { relativeTime, titleCase } from "@/lib/format";
 import { StatusPill } from "@/components/StatusPill";
-import { MatchMeter } from "@/components/MatchMeter";
+import { MatchMeter, QualityFlags } from "@/components/MatchMeter";
 import { FreshBeacon } from "@/components/FreshBeacon";
 import { sourceColor } from "@/components/charts/palette";
 import { Button, Card, Input, Select, Skeleton } from "@/components/ui";
@@ -252,7 +252,8 @@ function Row({
         </span>
       </td>
       <td className="px-2 py-3">
-        <MatchMeter score={job.match_score} />
+        <MatchMeter score={job.match_score} quality={job.quality} />
+        <QualityFlags quality={job.quality} className="mt-1" />
       </td>
       <td className="px-2 py-3">
         <StatusPill status={job.status} />

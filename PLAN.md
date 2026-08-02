@@ -290,6 +290,7 @@ CV_Template/
 - **Phase 9 — TopCV + VietnamWorks chạy thật**: parser schema.org `JobPosting` dùng chung, nhận diện field theo giá trị (`crawler/vietnam.py`).
 - **Phase 10 — Tailor + apply rời request path**: `POST /tailor|edit|apply` trả 202 + task, tiến độ qua WS.
 - **Phase 11 — Phân trang + nguồn tier-2**: `BaseScraper.search()` đi nhiều trang (`crawl.max_pages`) với guard "site bỏ qua `?page=`"; `FeedScraper` + `HttpFetcher` cho nguồn có feed chính thức; thêm WeWorkRemotely + Arbeitnow.
+- **Phase 14 — Quality signals**: `crawler/quality.py` giải thích `match_score` bằng chính danh sách `stacks` và gắn cờ `no_jd`/`thin_jd`/`stale`/`undated` (chú thích, không lọc). `cli backfill` cho job cũ.
 - **Phase 13 — ATS readability**: `cv/ats.py` đọc lại PDF như một applicant tracking system và báo đúng những gì parser không lấy lại được (không chấm điểm). Ưu tiên `pdfminer.six`; `pypdf` fallback tự khai báo không tin được về khoảng trắng.
 - **Phase 12 — ATS adapter (tier 3)**: `crawler/ats.py` — Greenhouse + Lever qua board JSON API công khai; "một trang = một công ty"; thêm công ty = 1 từ trong `ats:` của config. `rank_hits` xếp hạng theo số từ khoá khớp để `limit` không bị tiêu vào job xa đề.
 

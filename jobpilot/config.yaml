@@ -13,6 +13,9 @@ crawl:
   # if a site ignores the page parameter and re-serves results already seen.
   max_pages: 5
   fresh_hours: 48             # jobs newer than this get the 🔥 flag
+  # Postings older than this are *flagged* as possibly filled — never hidden.
+  # ATS boards legitimately carry open evergreen reqs for weeks, so be generous.
+  stale_days: 45
   rate_limit_seconds: [2.0, 5.0]   # polite delay range between requests
   match_score_min: 0.30       # min match to surface a job on the dashboard
   # Stack alerts — crawler filters jobs to these (Java backend focus for now).

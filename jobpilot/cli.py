@@ -39,6 +39,21 @@ def _redact_url(url: str) -> str:
         return "(set, redacted)"
 
 
+def cmd_backfill(_: argparse.Namespace) -> int:
+    """Attach quality signals to jobs crawled before that existed.
+
+    Idempotent: rows that already carry signals are skipped, so running it
+    twice costs one query and changes nothing.
+    """
+    from jobpilot.crawler.quality import backfill
+    from jobpilot.store.db import session_scope
+
+    with session_scope() as db:
+        touched = backfill(db, get_config())
+    print(f"annotated {touched} job(s)")
+    return 0
+
+
 def cmd_config(_: argparse.Namespace) -> int:
     cfg = get_config()
     sec = get_secrets()
@@ -354,6 +369,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("config", help="validate & print resolved config").set_defaults(func=cmd_config)
+    sub.add_parser(
+        "backfill", help="add quality signals to jobs crawled before they existed"
+    ).set_defaults(func=cmd_backfill)
 
     p_build = sub.add_parser("build", help="compile a CV to PDF via Docker (Phase 1)")
     p_build.add_argument("dir", nargs="?", default=None, help="work dir (default: repo root)")

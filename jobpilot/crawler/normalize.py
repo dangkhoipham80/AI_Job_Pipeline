@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 
 from jobpilot.config import Config
+from jobpilot.crawler.quality import Quality, flags_for, stack_coverage
 from jobpilot.crawler.text import clean_text, dedup_key, html_to_markdown
 from jobpilot.crawler.types import RawJob
 from jobpilot.timeutil import VN_TZ, vn_now  # re-exported for callers/tests
@@ -201,6 +202,20 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
     fresh = bool(posted_at and (now - posted_at) <= timedelta(hours=cfg.crawl.fresh_hours))
     haystack = " ".join([raw.title, " ".join(raw.skills), desc_md])
     score = stack_match_score(haystack, cfg.crawl.stacks)
+    # The same arithmetic the score comes from, reported instead of hidden: a
+    # bare 0.25 is a verdict with no reasons attached.
+    matched, missing = stack_coverage(haystack, cfg.crawl.stacks)
+    quality = Quality(
+        matched=matched,
+        missing=missing,
+        flags=flags_for(
+            description_md=desc_md,
+            posted_at=posted_at,
+            needs_jd=bool(raw.extra.get("needs_jd")),
+            now=now,
+            stale_days=cfg.crawl.stale_days,
+        ),
+    )
 
     payload = {
         # Scraper-specific extras first, so a stray key can never shadow a
@@ -223,6 +238,7 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
         "crawled_at": now.isoformat(),
         "match_score": score,
         "is_fresh": fresh,
+        "quality": quality.as_dict(),
     }
     return NormalizedJob(
         id=raw.id,

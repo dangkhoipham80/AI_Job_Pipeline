@@ -44,6 +44,8 @@ class CrawlCfg(BaseModel):
     # A ceiling, not a target: a board with 50 cards a page never leaves page 1.
     max_pages: int = 5
     fresh_hours: int = 48
+    # A posting older than this is flagged (never hidden) as possibly filled.
+    stale_days: int = 45
     rate_limit_seconds: tuple[float, float] = (2.0, 5.0)
     match_score_min: float = 0.30
     stacks: list[str] = Field(default_factory=list)
