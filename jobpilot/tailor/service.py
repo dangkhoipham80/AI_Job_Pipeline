@@ -11,6 +11,7 @@ new version rather than overwriting the last one.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -70,14 +71,16 @@ def _finish_run(db: Session, run: Run, stats: dict) -> None:
     db.add(run)
 
 
-def tailor_job(
-    db: Session,
-    job_id: str,
-    engine: TailorEngine,
-    instruction: str | None = None,
-    compile_pdf: bool = True,
-) -> TailorOutcome:
-    """Run one tailor round. Raises ``TailorRefused``/``TailorError``/``BuildError``."""
+def check_tailorable(db: Session, job_id: str, instruction: str | None = None) -> tuple[Job, int]:
+    """Everything that can be refused before any slow work starts.
+
+    Split out so the API can answer "this job is DISCOVERED" or "you've used
+    your edit rounds" with a 409 in the request, instead of queueing a task
+    that was always going to fail. ``tailor_job`` calls it too, because the
+    state can move between queueing and running.
+
+    Returns the job and the round number this attempt would be.
+    """
     job = db.get(Job, job_id)
     if job is None:
         raise TailorRefused(f"job {job_id!r} not found")
@@ -86,16 +89,34 @@ def tailor_job(
             f"job {job_id!r} is {job.status.value}; tailoring starts from "
             + "/".join(sorted(s.value for s in TAILORABLE))
         )
+    if not instruction:
+        return job, 1
 
     cfg = get_config()
-    round_no = 1
-    if instruction:
-        used = db.scalar(select(func.count()).select_from(Edit).where(Edit.job_id == job_id)) or 0
-        if used >= cfg.app.edit_max_rounds:
-            raise TailorRefused(
-                f"edit limit reached ({cfg.app.edit_max_rounds} rounds) — approve or skip this job"
-            )
-        round_no = used + 1
+    used = db.scalar(select(func.count()).select_from(Edit).where(Edit.job_id == job_id)) or 0
+    if used >= cfg.app.edit_max_rounds:
+        raise TailorRefused(
+            f"edit limit reached ({cfg.app.edit_max_rounds} rounds) — approve or skip this job"
+        )
+    return job, used + 1
+
+
+def tailor_job(
+    db: Session,
+    job_id: str,
+    engine: TailorEngine,
+    instruction: str | None = None,
+    compile_pdf: bool = True,
+    progress: Callable[[str], None] | None = None,
+) -> TailorOutcome:
+    """Run one tailor round. Raises ``TailorRefused``/``TailorError``/``BuildError``.
+
+    ``progress`` reports the stage the round is in. It matters more than a
+    spinner would: the Claude call and the LaTeX build fail for entirely
+    different reasons, and the user should be able to see which one is running.
+    """
+    say = progress or (lambda _message: None)
+    job, round_no = check_tailorable(db, job_id, instruction)
 
     master = cv_store.get_document(db, cv_store.MASTER_SCOPE)
     previous = latest_plan(db, job_id) if instruction else None
@@ -106,6 +127,7 @@ def tailor_job(
     db.commit()
 
     try:
+        say("re-planning with your instruction" if instruction else "planning against the JD")
         result = engine.tailor(master, job, instruction=instruction, previous=previous)
         tailored = apply_plan(master, result.plan)
     except (TailorError, GuardrailViolation) as exc:
@@ -118,6 +140,7 @@ def tailor_job(
     pages: int | None = None
     if compile_pdf:
         try:
+            say("building the PDF")
             pages = compile_document(tailored, job_id).pages
         except BuildError as exc:
             job.status = JobStatus.FAILED

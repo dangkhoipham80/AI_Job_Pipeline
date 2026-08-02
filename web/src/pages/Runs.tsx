@@ -22,6 +22,14 @@ const STATUS: Record<TaskStatus, { icon: typeof Clock; className: string }> = {
   failed: { icon: XCircle, className: "text-critical" },
 };
 
+/** How an apply dispatch ended. "done" is about the task, not the application. */
+const OUTCOME: Record<string, string> = {
+  success: "text-good",
+  dry_run: "text-ink-muted",
+  awaiting_user: "text-accent",
+  failed: "text-critical",
+};
+
 export function Runs({ version }: { version: number }) {
   const tasks = useApi(() => api.tasks(), [version]);
   const runs = useApi(() => api.runs(), [version]);
@@ -125,8 +133,33 @@ function TaskRow({ task }: { task: Task }) {
       {task.progress && task.status === "running" && (
         <p className="mt-1 pl-6 text-xs text-ink-muted">{task.progress}</p>
       )}
+      {/* A finished apply task is not the same as a sent application: the
+          dispatch ran, and `result` says whether anything actually left. */}
+      {task.status === "done" && task.result.result && (
+        <p className="mt-1 pl-6 text-xs text-ink-muted">
+          <span className={cn("font-medium", OUTCOME[task.result.result] ?? "text-ink")}>
+            {task.result.result.replace("_", " ")}
+          </span>
+          {task.result.detail ? ` — ${task.result.detail}` : ""}
+        </p>
+      )}
+      {task.status === "done" && task.result.version !== undefined && (
+        <p className="mt-1 pl-6 text-xs text-ink-muted">
+          v{task.result.version} · match{" "}
+          {Math.round((task.result.match_score ?? 0) * 100)}% · {task.result.pages ?? "?"} page
+          {task.result.pages === 1 ? "" : "s"}
+        </p>
+      )}
       {task.error && (
-        <p className="mt-2 rounded-md border border-critical/30 bg-critical/5 px-2 py-1 font-mono text-[11px] leading-relaxed text-critical">
+        <p
+          className={cn(
+            "mt-2 rounded-md border px-2 py-1 font-mono text-[11px] leading-relaxed",
+            task.error_kind === "GuardrailViolation"
+              ? "border-critical bg-critical/10 text-critical"
+              : "border-critical/30 bg-critical/5 text-critical",
+          )}
+        >
+          {task.error_kind === "GuardrailViolation" && <strong>guardrail · </strong>}
           {task.error}
         </p>
       )}

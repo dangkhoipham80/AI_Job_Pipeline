@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -13,29 +13,39 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { isActive, useTask } from "@/hooks/useTask";
 import { MatchMeter } from "@/components/MatchMeter";
 import { StatusPill } from "@/components/StatusPill";
+import { TaskProgress } from "@/components/TaskProgress";
 import { DiffPanel } from "@/components/review/DiffPanel";
 import { GapReport } from "@/components/review/GapReport";
 import { Button, Card, CardBody, CardHeader, CardTitle, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { JobDetail, ReviewData } from "@/types";
+import type { JobDetail, ReviewData, Task } from "@/types";
+
+type Action = "tailor" | "edit" | "approve" | "reject" | "apply";
 
 /**
  * CV Review (PLAN.md §5.6). The tailored PDF sits next to the diff so the user
  * can check the claim against the artifact, then Approve / Sửa / Bỏ. "Sửa" has
  * two doors: an instruction for the agent, or CV Studio for a manual edit.
+ *
+ * Tailoring and applying return a task rather than a result, so this page starts
+ * the work, follows the task, and only refetches once it lands. Approve and
+ * reject are still plain state changes and answer inside the request.
  */
 export function CvReview({ version }: { version: number }) {
   const { id = "" } = useParams();
   const job = useApi(() => api.job(id), [id, version]);
   const review = useApi(() => api.review(id), [id, version]);
 
-  const [busy, setBusy] = useState<null | "tailor" | "edit" | "approve" | "reject" | "apply">(null);
+  const [busy, setBusy] = useState<Action | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const task = useTask(taskId, version);
 
   const tailored = (review.data?.version ?? 0) > 0;
 
@@ -58,17 +68,14 @@ export function CvReview({ version }: { version: number }) {
     };
   }, [id, tailored, review.data?.version]);
 
+  /** An immediate state change: approve, reject. Done when the call returns. */
   const run = useCallback(
-    async (
-      kind: "tailor" | "edit" | "approve" | "reject" | "apply",
-      fn: () => Promise<unknown>,
-    ) => {
+    async (kind: Action, fn: () => Promise<unknown>) => {
       setBusy(kind);
       setError(null);
       try {
         await fn();
         await Promise.all([job.refetch(), review.refetch()]);
-        if (kind === "edit") setInstruction("");
       } catch (e) {
         setError(e instanceof ApiError ? e.message : "Request failed");
       } finally {
@@ -77,6 +84,46 @@ export function CvReview({ version }: { version: number }) {
     },
     [job, review],
   );
+
+  /**
+   * Queued work: tailor, edit, apply. `busy` stays set until the *task* ends,
+   * not until the request returns — the request returns almost instantly now,
+   * and re-enabling the buttons then would invite a second round on top of the
+   * first (which the backend refuses with a 409 anyway).
+   */
+  const start = useCallback(
+    async (kind: Action, fn: () => Promise<Task>) => {
+      setBusy(kind);
+      setError(null);
+      setApplied(null);
+      try {
+        setTaskId((await fn()).id);
+      } catch (e) {
+        setBusy(null);
+        setError(e instanceof ApiError ? e.message : "Request failed");
+      }
+    },
+    [],
+  );
+
+  // Land the finished task: refetch explicitly rather than lean on the WS nudge,
+  // so the page still settles when the socket is down and only the poll is live.
+  const landed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!task || isActive(task) || landed.current === task.id) return;
+    landed.current = task.id;
+    setBusy(null);
+    if (task.status === "done") {
+      if (task.kind === "tailor") setInstruction("");
+      if (task.kind === "apply" && task.result.result) {
+        setApplied(`${task.result.result} — ${task.result.detail ?? ""}`);
+      }
+    }
+    void Promise.all([job.refetch(), review.refetch()]);
+    // Refetching is keyed to the task landing; `job`/`review` change identity on
+    // every version bump and would re-run this constantly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task]);
 
   if (job.error) {
     return (
@@ -103,16 +150,13 @@ export function CvReview({ version }: { version: number }) {
         job={data}
         review={r}
         busy={busy}
-        onTailor={() => run("tailor", () => api.tailor(id))}
+        onTailor={() => start("tailor", () => api.tailor(id))}
         onApprove={() => run("approve", () => api.approve(id))}
         onReject={() => run("reject", () => api.reject(id))}
-        onApply={() =>
-          run("apply", async () => {
-            const outcome = await api.applyJob(id);
-            setApplied(`${outcome.result} — ${outcome.detail}`);
-          })
-        }
+        onApply={() => start("apply", () => api.applyJob(id))}
       />
+
+      {task && <TaskProgress task={task} />}
 
       {applied && (
         <Card className="border-l-2 border-l-accent">
@@ -135,7 +179,7 @@ export function CvReview({ version }: { version: number }) {
       {!tailored ? (
         <NotTailoredYet
           busy={busy === "tailor"}
-          onTailor={() => run("tailor", () => api.tailor(id))}
+          onTailor={() => start("tailor", () => api.tailor(id))}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -170,7 +214,7 @@ export function CvReview({ version }: { version: number }) {
               onChange={setInstruction}
               busy={busy === "edit"}
               round={r?.round ?? 0}
-              onSubmit={() => run("edit", () => api.editCv(id, instruction))}
+              onSubmit={() => start("edit", () => api.editCv(id, instruction))}
             />
           </div>
         </div>
@@ -281,7 +325,7 @@ function NotTailoredYet({ busy, onTailor }: { busy: boolean; onTailor: () => voi
         <p className="max-w-md text-sm leading-relaxed text-ink-muted">
           Not tailored yet. Tailoring reorders and trims your Master CV for this posting — it
           never adds a skill you don't have. Takes about a minute: a Claude call plus a LaTeX
-          build.
+          build. It runs in the background, so you can go and do something else.
         </p>
         <Button onClick={onTailor} disabled={busy}>
           {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}

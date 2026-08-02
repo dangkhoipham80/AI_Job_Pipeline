@@ -8,6 +8,8 @@ share one code path).
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -37,8 +39,32 @@ PLAN = TailorPlan(
 )
 
 
+def finish(client: JobPilotClient, task: dict, timeout: float = 20.0) -> dict:
+    """Drive a 202 task to completion.
+
+    Slack itself never waits — it acknowledges "queued" and lets the WebSocket
+    mirror deliver the review/apply card. A test asserting on the funnel has to.
+    """
+    assert task.get("kind"), f"expected a task, got {task}"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        current = client.task(task["id"])
+        if current["status"] in ("done", "failed"):
+            return current
+        time.sleep(0.02)
+    raise AssertionError(f"task {task['id']} did not finish within {timeout}s")
+
+
+def tailor(client: JobPilotClient, job_id: str) -> dict:
+    return finish(client, client.tailor(job_id))
+
+
+def apply_(client: JobPilotClient, job_id: str) -> dict:
+    return finish(client, client.apply(job_id))
+
+
 @pytest.fixture
-def client(session_factory, tmp_path, monkeypatch):
+def client(session_factory, worker_db, tmp_path, monkeypatch):
     """A JobPilotClient wired to the in-process API — no server, real routes."""
     monkeypatch.setattr(
         "jobpilot.tailor.service.compile_document",
@@ -116,7 +142,7 @@ def client(session_factory, tmp_path, monkeypatch):
 def test_check_blocks_accepts_every_builder(client):
     job = client.job("itviec:1")
     client.shortlist("itviec:1")
-    client.tailor("itviec:1")
+    tailor(client, "itviec:1")
     review = client.review("itviec:1")
 
     for blocks in (
@@ -158,7 +184,7 @@ def test_job_card_flags_a_fresh_job(client):
 
 def test_review_card_shows_gaps_and_changes(client):
     client.shortlist("itviec:1")
-    client.tailor("itviec:1")
+    tailor(client, "itviec:1")
     blocks = B.review_card(client.job("itviec:1"), client.review("itviec:1"))
     rendered = " ".join(b.get("text", {}).get("text", "") for b in blocks if b["type"] == "section")
     assert "Honors hidden" in rendered
@@ -216,14 +242,14 @@ def test_client_drives_the_whole_funnel(client):
     client.shortlist("itviec:1")
     assert client.job("itviec:1")["status"] == "SHORTLISTED"
 
-    client.tailor("itviec:1")
+    tailor(client, "itviec:1")
     assert client.job("itviec:1")["status"] == "REVIEW"
 
     client.approve("itviec:1")
     assert client.job("itviec:1")["status"] == "APPROVED"
 
-    outcome = client.apply("itviec:1")
-    assert outcome["result"] == "dry_run"
+    task = apply_(client, "itviec:1")
+    assert task["result"]["result"] == "dry_run"
     # A dry run must not pretend the job was submitted, in Slack either.
     assert client.job("itviec:1")["status"] == "APPROVED"
 
@@ -259,7 +285,7 @@ def test_job_ids_with_colons_survive_the_url(client):
 # --------------------------------------------------------------------------- #
 def test_tailor_done_becomes_a_review_message(client):
     client.shortlist("itviec:1")
-    client.tailor("itviec:1")
+    tailor(client, "itviec:1")
     note = notification_for({"type": "tailor_done", "id": "itviec:1"}, client)
     assert note and note.kind == "review"
     assert "ACME Corp" in note.text or "Backend Engineer" in note.text
@@ -268,9 +294,9 @@ def test_tailor_done_becomes_a_review_message(client):
 
 def test_apply_done_becomes_an_apply_message(client):
     client.shortlist("itviec:1")
-    client.tailor("itviec:1")
+    tailor(client, "itviec:1")
     client.approve("itviec:1")
-    client.apply("itviec:1")
+    apply_(client, "itviec:1")
     note = notification_for({"type": "apply_done", "id": "itviec:1"}, client)
     assert note and note.kind == "apply"
     assert "dry_run" in note.text
@@ -290,10 +316,10 @@ def test_routine_transitions_stay_quiet(client):
 
 def test_failures_are_reported(client):
     client.shortlist("itviec:1")
-    client.tailor("itviec:1")
+    tailor(client, "itviec:1")
     client.approve("itviec:1")
     client.report_failure  # noqa: B018 - referenced for clarity
-    client.apply("itviec:1")
+    apply_(client, "itviec:1")
     note = notification_for({"type": "job_updated", "id": "itviec:1", "status": "FAILED"}, client)
     assert note and note.kind == "error"
 
