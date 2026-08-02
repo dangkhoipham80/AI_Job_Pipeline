@@ -147,11 +147,32 @@ export interface CvVersionDetail extends CvVersion {
   tex: string;
 }
 
+/** One thing a parser could not recover from the PDF, plus how to fix it. */
+export interface AtsFinding {
+  level: "error" | "warning";
+  code: string;
+  message: string;
+  fix: string;
+}
+
+/** What an applicant tracking system gets back out of the compiled PDF. */
+export interface AtsReport {
+  ok: boolean;
+  chars: number;
+  /** Which extractor read the PDF — findings mean less from a weak one. */
+  engine: string;
+  findings: AtsFinding[];
+  keywords_found: string[];
+  keywords_missing: string[];
+}
+
 export interface CvCompileResult {
   scope: string;
   version: number;
   pages: number;
   pdf_url: string;
+  /** `null` means not checked (no PDF text extractor installed), not passed. */
+  ats: AtsReport | null;
 }
 
 /* Tailor + CV Review (Phase 5) — mirrors jobpilot/tailor/{schema,diff}.py ---- */

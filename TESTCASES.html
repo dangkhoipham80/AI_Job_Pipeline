@@ -136,7 +136,7 @@ footer{border-top:2px solid var(--ink);padding-top:16px;font-size:13px;color:var
     <span>TỔNG <b id="m-total">—</b> case</span>
     <span>TỰ ĐỘNG <b id="m-auto">—</b></span>
     <span>PHASE <b>0 → 11</b></span>
-    <span>SUITE <b>pytest 428 pass</b></span>
+    <span>SUITE <b>pytest 464 pass</b></span>
     <span>CẬP NHẬT <b>2026-08-02</b></span>
   </div>
 </header>
@@ -589,6 +589,60 @@ P('11','Phân trang + nguồn tier-2','Một fetch từng là cả cuộc crawl.
  {id:'TC-11-14',c:'robots chặn đúng nguồn đã loại',r:'Jobicy `/api/` → False',tag:'auto',
   steps:['Chạy `RobotsPolicy(...).allowed("https://jobicy.com/api/v2/remote-jobs")`'],
   exp:'`False`. Đọc **hết** robots.txt — dòng `Disallow: /api/` của Jobicy ở dòng 48, `head -40` làm nó trông thoáng.',pin:'test_crawler_unit.py'}
+]);
+
+P('12','ATS adapter — career page của công ty','Một adapter phủ mọi công ty dùng nền tảng đó. **Một "trang" ở đây là một công ty**, nên vòng lặp phân trang Phase 11 dùng lại nguyên vẹn.',[
+ {id:'TC-12-01',c:'Thêm công ty chỉ bằng 1 dòng config',r:'không phải viết code',tag:'manual',
+  steps:['Thêm một token vào `ats.greenhouse` trong `config.yaml`','Bật nguồn `greenhouse` ở trang Settings rồi crawl'],
+  exp:'Job của công ty đó vào DB. Token là slug trong URL careers page (`gitlab` của job-boards.greenhouse.io/gitlab).'},
+ {id:'TC-12-02',c:'Mỗi công ty là một request',r:'không fetch trang chi tiết',tag:'auto',
+  steps:['Crawl greenhouse với log INFO rồi đếm request'],
+  exp:'Đúng **một** request cho mỗi board (`content=true` trả JD đầy đủ), không có request per-job.',pin:'test_ats.py'},
+ {id:'TC-12-03',c:'Greenhouse unescape JD',r:'không còn `&lt;div&gt;` trong JD',tag:'auto',
+  steps:['Mở một job greenhouse và xem `description_md`'],
+  exp:'JD là văn bản đọc được. API double-encode nên lưu thẳng sẽ hiện tag thô cho người đọc và đưa markup như văn xuôi cho agent tailor.',pin:'test_ats.py'},
+ {id:'TC-12-04',c:'Lever: ngày mili-giây + tên công ty',r:'posted_at đúng, company không rỗng',tag:'auto',
+  steps:['Crawl lever rồi xem `posted_at` và `company`'],
+  exp:'`createdAt` 13 chữ số được đổi sang giây tại scraper (không nới guard epoch 9–11 chữ số). Tên công ty lấy từ slug trong `hostedUrl` vì payload Lever không bao giờ ghi tên.',pin:'test_ats.py'},
+ {id:'TC-12-05',c:'Lever JD đủ phần yêu cầu',r:'có cả `lists` và `additional`',tag:'auto',
+  steps:['Mở một job lever và tìm phần yêu cầu trong JD'],
+  exp:'JD gồm `description` + `lists` + `additional`. Chỉ lấy `description` là đưa cho tailor bài PR của công ty mà không có yêu cầu nào để CV đáp.',pin:'test_ats.py'},
+ {id:'TC-12-06',c:'Board token sai/hết hạn',r:'lỗi rõ, không im lặng thành 0 job',tag:'auto',
+  steps:['Đặt một token không tồn tại rồi crawl'],
+  exp:'Báo lỗi rõ ràng. Lever trả 404 dạng object thay vì mảng — parse dễ dãi sẽ đọc thành "công ty này không tuyển ai", và board đó chết âm thầm.',pin:'test_ats.py'},
+ {id:'TC-12-07',c:'Chưa khai báo công ty nào',r:'nói rõ "no boards configured"',tag:'auto',
+  steps:['Để `ats.greenhouse` rỗng rồi bật nguồn và crawl'],
+  exp:'Log nói **"no company boards configured"** chứ không phải cảnh báo 0-hit chung chung (đọc như "parser hỏng").',pin:'test_ats.py'},
+ {id:'TC-12-08',c:'Xếp hạng theo độ khớp query',r:'job sát đề lên đầu',tag:'auto',
+  steps:['Crawl greenhouse board lớn (gitlab) với query "backend engineer java", limit 6'],
+  exp:'6 job đầu là Backend Engineer thật. Trước khi có `rank_hits`, `limit` bị tiêu vào "AI Engineer" và 4 "Customer Success Engineer" — tất cả nhờ mỗi chữ *engineer*.',pin:'test_ats.py'},
+ {id:'TC-12-09',c:'Đăng lại nhiều thành phố',r:'gộp thành duplicates',tag:'manual',
+  steps:['Crawl lever/palantir rồi xem `duplicates` trong stats'],
+  exp:'Cùng một job đăng ở nhiều thành phố bị gộp theo `(company, normalized_title)`; chỉ job thật sự khác tên mới giữ riêng.'}
+]);
+
+P('13','ATS đọc được PDF không?','Build trả lời "compile được chưa"; phase này trả lời "máy đọc được không" — và cái thứ hai mới quyết định có ai đọc CV của bạn hay không.',[
+ {id:'TC-13-01',c:'CV tốt không bị báo lỗi oan',r:'ok=true, 0 finding',tag:'manual',
+  steps:['Mở CV Studio, bấm **Compile**','Xem panel readability ở cột phải'],
+  exp:'"An ATS can read this CV" và không có finding nào. Panel ghi số ký tự trích được.'},
+ {id:'TC-13-02',c:'Email không nằm trong text layer',r:'error + nói rõ parser thấy gì',tag:'auto',
+  steps:['Đổi email trong header thành địa chỉ khác với PDF đã build rồi check lại'],
+  exp:'Error `email_missing`, và message nêu **địa chỉ mà ATS sẽ gửi tới thay thế** — hữu ích hơn nhiều so với "thiếu email".',pin:'test_cv_ats.py'},
+ {id:'TC-13-03',c:'PDF không có text layer',r:'error duy nhất, không đẻ ra 8 lỗi phái sinh',tag:'auto',
+  steps:['Check một PDF ảnh (scan)'],
+  exp:'Đúng **một** error `no_text_layer`. Mọi check sau đó chỉ lặp lại cùng một sự thật.',pin:'test_cv_ats.py'},
+ {id:'TC-13-04',c:'Trình trích xuất yếu không tự bịa lỗi',r:'pypdf mất dấu cách → vẫn ok',tag:'auto',
+  steps:['Chạy check với `spacing_reliable=False` trên text đã mất hết dấu cách'],
+  exp:'Không có finding nào. **Bug thật đã gặp**: pypdf đọc một PDF Awesome-CV hoàn hảo thành `WorkExperience`/`FRESHERSOFTWAREENGINEER` và checker báo CV hỏng; pdfminer.six đọc đúng. Đổ lỗi cho tài liệu vì hạn chế của công cụ còn tệ hơn không kiểm tra.',pin:'test_cv_ats.py'},
+ {id:'TC-13-05',c:'Thiếu keyword không chặn Approve',r:'chỉ hiện gạch ngang',tag:'auto',
+  steps:['Compile CV tailored cho job có skill mà CV không có'],
+  exp:'Keyword thiếu hiện **gạch ngang**, không block. Chặn ở đây sẽ đẩy người ta dán skill không có vào CV — đúng thứ guardrail tailor sinh ra để ngăn.',pin:'test_cv_ats.py'},
+ {id:'TC-13-06',c:'Không cài được trình trích xuất',r:'"not checked", không phải "passed"',tag:'auto',
+  steps:['Gỡ `pdfminer.six` và `pypdf` rồi compile'],
+  exp:'`ats: null` và UI ghi rõ **chưa kiểm tra** kèm lệnh cài. "Không biết" và "đạt" là hai khẳng định khác nhau.',pin:'test_cv_api.py'},
+ {id:'TC-13-07',c:'Master CV không bị check keyword',r:'không có keyword nào bị đòi',tag:'auto',
+  steps:['Compile scope `master` và xem `ats.keywords_missing`'],
+  exp:'Rỗng. Master CV không nhắm job nào; đòi keyword ở đó là mời người dùng nhồi skill không có.',pin:'test_cv_api.py'}
 ]);
 
 P('99','Hồi quy toàn hệ thống','Chạy trước mỗi lần commit. Test xanh không có nghĩa parser đúng — vẫn phải crawl thật một lần rồi đọc output.',[

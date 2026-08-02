@@ -123,14 +123,47 @@ def test_pdf_404_before_compile(client, monkeypatch, tmp_path):
     assert client.get("/cv/master/pdf", headers=AUTH).status_code == 404
 
 
-def test_compile_returns_page_count(client, monkeypatch):
+def test_compile_returns_page_count(client, monkeypatch, tmp_path):
     class FakeResult:
         pages = 1
+        pdf = tmp_path / "cv.pdf"  # never written → the text layer is unreadable
 
     monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", lambda doc, scope: FakeResult())
     r = client.post("/cv/master/compile", headers=AUTH)
     assert r.status_code == 200
-    assert r.json() == {"scope": "master", "version": 1, "pages": 1, "pdf_url": "/cv/master/pdf"}
+    assert r.json() == {
+        "scope": "master",
+        "version": 1,
+        "pages": 1,
+        "pdf_url": "/cv/master/pdf",
+        # No readable PDF means "not checked". Reporting ok here would be a pass
+        # the checker never granted.
+        "ats": None,
+    }
+
+
+def test_compile_reports_what_a_parser_gets_back(client, monkeypatch, tmp_path):
+    """CV Review needs the findings *before* you approve, not after the silence."""
+    from jobpilot.cv.ats import AtsReport, Finding
+
+    class FakeResult:
+        pages = 1
+        pdf = tmp_path / "cv.pdf"
+
+    report = AtsReport(
+        ok=False,
+        chars=1200,
+        findings=[
+            Finding("error", "email_missing", "no email in the text layer", "fix the header")
+        ],
+    )
+    monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", lambda doc, scope: FakeResult())
+    monkeypatch.setattr("jobpilot.cv.compile.check_pdf", lambda p, d, s: report)
+
+    ats = client.post("/cv/master/compile", headers=AUTH).json()["ats"]
+    assert ats["ok"] is False
+    assert ats["findings"][0]["code"] == "email_missing"
+    assert ats["findings"][0]["fix"]  # every finding says what to do about it
 
 
 def test_compile_surfaces_latex_failure_as_422(client, monkeypatch):

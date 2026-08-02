@@ -96,6 +96,9 @@ class CvCompileOut(BaseModel):
     version: int
     pages: int
     pdf_url: str
+    # What a parser gets back out of the PDF. `None` means "not checked" (pypdf
+    # missing), which the UI must not render as a pass.
+    ats: dict | None = None
 
 
 # --------------------------------------------------------------------------- #

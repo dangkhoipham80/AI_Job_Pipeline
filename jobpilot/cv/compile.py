@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 
 from jobpilot.config import REPO_ROOT, get_config
+from jobpilot.cv.ats import AtsReport, check_pdf
 from jobpilot.cv.render import write_document
 from jobpilot.cv.schema import CvDocument
 from jobpilot.tailor.build import BuildResult, build_cv
@@ -63,3 +64,17 @@ def compile_document(
 ) -> BuildResult:
     """Render + build. Raises ``BuildError`` if LaTeX or Docker fails."""
     return build_cv(prepare_build_dir(doc, scope, root))
+
+
+def check_build(
+    result: BuildResult, doc: CvDocument, job_skills: list[str] | None = None
+) -> AtsReport | None:
+    """Read the PDF back the way an applicant tracking system would.
+
+    Kept separate from :func:`compile_document` on purpose: compiling answers
+    "does this build?", this answers "can a machine read what it built?" — two
+    questions that fail independently and want different remedies. ``None``
+    means the text layer could not be read at all (pypdf missing), which is
+    "not checked" rather than "passed".
+    """
+    return check_pdf(result.pdf, doc, job_skills)
