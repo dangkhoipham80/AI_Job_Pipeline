@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JobPilot — Preflight Checklist (Phase 0 → 11)</title>
+<title>JobPilot — Preflight Checklist (Phase 0 → 15)</title>
 <style>
 :root{
   --paper:#EDEFF2; --paper2:#F6F7F9; --card:#FFFFFF;
@@ -129,14 +129,14 @@ footer{border-top:2px solid var(--ink);padding-top:16px;font-size:13px;color:var
 
 <header class="strip">
   <div class="eyebrow">Preflight checklist · challenge &amp; response</div>
-  <h1>JobPilot<br><em>Bộ testcase</em> Phase 0 → 11</h1>
+  <h1>JobPilot<br><em>Bộ testcase</em> Phase 0 → 15</h1>
   <p>Danh sách kiểm tra chạy tay, xếp theo đúng thứ tự phase trong <code>PLAN.md §9</code>. Mỗi dòng là một cặp
      <b>việc cần làm</b> ······ <b>kết quả bắt buộc</b>. Đánh dấu ✓/✕ khi chạy; trạng thái lưu ngay trong trình duyệt này.</p>
   <div class="meta">
     <span>TỔNG <b id="m-total">—</b> case</span>
     <span>TỰ ĐỘNG <b id="m-auto">—</b></span>
-    <span>PHASE <b>0 → 11</b></span>
-    <span>SUITE <b>pytest 464 pass</b></span>
+    <span>PHASE <b>0 → 15</b></span>
+    <span>SUITE <b>pytest 491 pass</b></span>
     <span>CẬP NHẬT <b>2026-08-02</b></span>
   </div>
 </header>
@@ -643,6 +643,54 @@ P('13','ATS đọc được PDF không?','Build trả lời "compile được ch
  {id:'TC-13-07',c:'Master CV không bị check keyword',r:'không có keyword nào bị đòi',tag:'auto',
   steps:['Compile scope `master` và xem `ats.keywords_missing`'],
   exp:'Rỗng. Master CV không nhắm job nào; đòi keyword ở đó là mời người dùng nhồi skill không có.',pin:'test_cv_api.py'}
+]);
+
+P('14','Tín hiệu chất lượng job','Giải thích `match_score` và gắn cờ tin có vấn đề. Thuần, không LLM. **Không cờ nào lọc bỏ job** — chỉ chú thích rồi để người quyết.',[
+ {id:'TC-14-01',c:'Điểm số có lý do kèm theo',r:'tooltip liệt kê stack khớp/không khớp',tag:'manual',
+  steps:['Mở trang Jobs, rê chuột lên thanh match của một job'],
+  exp:'Tooltip ghi `Mentions: Java, Backend` và `Missing: Spring Boot`. Trước đây 0.25 là bản án không kèm lý do.'},
+ {id:'TC-14-02',c:'Lời giải thích khớp với con số',r:'matched/tổng == match_score',tag:'auto',
+  steps:['So `len(matched)/len(stacks)` với `match_score` của cùng job'],
+  exp:'Bằng nhau (làm tròn 3 số). Nếu hai bên dùng luật khác nhau thì lời giải thích thành một điểm số thứ hai đang cạnh tranh.',pin:'test_quality.py'},
+ {id:'TC-14-03',c:'Job LinkedIn không có JD',r:'cờ `no_jd`',tag:'auto',
+  steps:['Xem badge của một job nguồn linkedin'],
+  exp:'Badge **NO JD**. Alert email không mang JD nên tailor không có gì để bám — biết trước còn hơn tới lúc tailor mới lộ.',pin:'test_quality.py'},
+ {id:'TC-14-04',c:'Tin đăng lâu ngày',r:'cờ `stale`, không bị ẩn',tag:'auto',
+  steps:['Xem job có `posted_at` cũ hơn `crawl.stale_days` (mặc định 45)'],
+  exp:'Badge **OLD** và job **vẫn nằm trong danh sách**. Cờ chú thích chứ không lọc.',pin:'test_quality.py'},
+ {id:'TC-14-05',c:'Không biết tuổi ≠ già',r:'`undated` tách khỏi `stale`',tag:'auto',
+  steps:['Xem job từ nguồn không công bố ngày (ITviec)'],
+  exp:'Badge **UNDATED**, không phải OLD. Nguồn không công bố ngày thì không được âm thầm bị coi là cũ.',pin:'test_quality.py'},
+ {id:'TC-14-06',c:'Job cũ trong DB cũng được gắn tín hiệu',r:'`cli backfill`, chạy lại → 0',tag:'auto',
+  steps:['`python -m jobpilot.cli backfill`','Chạy lại lần nữa'],
+  exp:'Lần đầu báo số row đã gắn, lần hai báo **0** (idempotent). Không có nó thì job cũ — nhất là LinkedIn, không bao giờ crawl lại — mãi mãi không có chú thích.',pin:'test_quality.py'}
+]);
+
+P('15','Nhắc follow-up sau khi nộp','Đơn thường **không bị từ chối, chỉ bị quên**. Nhịp nhắc hữu hạn và **không bao giờ tự gửi gì**.',[
+ {id:'TC-15-01',c:'Migration 0005',r:'lên Postgres sạch',tag:'manual',
+  steps:['`alembic upgrade head`'],
+  exp:'Thêm `applications.next_followup_at` + `followup_stage` + index, không lỗi.'},
+ {id:'TC-15-02',c:'Nộp thật thì bắt đầu đếm',r:'stage=first_nudge, có hạn',tag:'auto',
+  steps:['Apply một job (kênh email đã bật, hoặc portal)','Xem `followup_stage` của application'],
+  exp:'`first_nudge` với hạn **5 ngày làm việc** sau. Kênh portal/external cũng tính — bạn tự nộp thì nó cũng im lặng y hệt.',pin:'test_followup.py'},
+ {id:'TC-15-03',c:'Dry run không bị nhắc',r:'stage=done, hạn = null',tag:'auto',
+  steps:['Apply với `dry_run: true` rồi xem application'],
+  exp:'`done` và `next_followup_at = null`. Không có gì rời máy thì không có ai để nhắc — `NULL` thật thà hơn một cái hạn đã trôi qua.',pin:'test_followup.py'},
+ {id:'TC-15-04',c:'Nhịp có điểm dừng',r:'first → second → done',tag:'auto',
+  steps:['Bấm **I followed up** ba lần liên tiếp'],
+  exp:'`first_nudge` → `second_nudge` (hạn mới, rớt khỏi danh sách due) → `done` (hết hạn). Hai lá thư không hồi âm đã là câu trả lời.',pin:'test_followup.py'},
+ {id:'TC-15-05',c:'Không tự gửi bất cứ thứ gì',r:'chỉ hiện nhắc',tag:'manual',
+  steps:['Để một application tới hạn rồi mở trang Applications'],
+  exp:'Hiện card "N application worth chasing" — **không** email nào được gửi. Follow-up là thư gửi cho người đang cân nhắc mình (nguyên tắc 2).'},
+ {id:'TC-15-06',c:'Bỏ qua một đơn',r:'Let it go → done',tag:'auto',
+  steps:['Bấm **Let it go** trên một nhắc'],
+  exp:'Chuyển `done`, hết hiện. Dùng khi đã có hồi âm, bị từ chối, hoặc đổi ý.',pin:'test_followup.py'},
+ {id:'TC-15-07',c:'Nhắc rơi vào ngày làm việc',r:'không rơi T7/CN',tag:'auto',
+  steps:['Kiểm hạn của một đơn nộp hôm thứ Năm'],
+  exp:'Rơi vào thứ Năm tuần sau, không phải cuối tuần. Nhắc rơi Chủ nhật là nhắc bị đọc sáng thứ Hai với tâm trạng tệ hơn.',pin:'test_followup.py'},
+ {id:'TC-15-08',c:'So sánh thời gian không nổ',r:'chạy đúng trên cả SQLite lẫn Postgres',tag:'auto',
+  steps:['Chạy `is_due` với datetime naive'],
+  exp:'Không raise. SQLite trả naive còn Postgres trả aware — so thẳng thì **nổ ở backend này, chạy ngon ở backend kia**.',pin:'test_followup.py'}
 ]);
 
 P('99','Hồi quy toàn hệ thống','Chạy trước mỗi lần commit. Test xanh không có nghĩa parser đúng — vẫn phải crawl thật một lần rồi đọc output.',[
