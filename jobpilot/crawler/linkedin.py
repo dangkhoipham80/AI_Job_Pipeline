@@ -70,7 +70,7 @@ class LinkedInAlertsScraper(BaseScraper):
         self.since_days = since_days
 
     # -- pure parsing (unit-testable against a saved alert email) ----------- #
-    def search_url(self, query: str) -> str:
+    def search_url(self, query: str, page: int = 1) -> str:
         """Not applicable — this source reads a mailbox, not a URL."""
         return ""
 

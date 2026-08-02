@@ -68,6 +68,10 @@ uvicorn jobpilot.api.main:app --reload   # API backend (REST + WebSocket) tại 
 cd web && npm run dev               # Web Dashboard (Vite) tại :5173  ← control plane chính
 python -m jobpilot.cli crawl        # crawl các nguồn đang bật → Postgres
 python -m jobpilot.cli crawl --query "java spring" --limit 50   # scope 1 lần chạy
+                                    # query NGẮN thôi: nó thành slug/từ khoá ở từng
+                                    # site, "java spring boot backend" → TopCV 0 job.
+                                    # limit > 1 trang thì `crawl.max_pages` quyết định
+                                    # đi thêm bao nhiêu trang (mặc định 5).
                                     # (hoặc dùng card "Crawl setup" ở trang Runs: chọn nguồn,
                                     #  gõ từ khoá — có gợi ý lấy từ Master CV — rồi Crawl now)
 python -m jobpilot.cli cv seed      # tạo Master CV rỗng nếu chưa có (idempotent)
@@ -151,6 +155,29 @@ chứ không tạo bản trùng.
 7. Đăng ký trong `crawler/registry.SCRAPERS` + 1 dòng `config.yaml`.
 8. **Crawl thật một lần** rồi đọc output — test xanh không có nghĩa là parser đúng.
 
+**Nguồn có feed chính thức (RSS/JSON) thì kế thừa `crawler/feed.FeedScraper`**, đừng
+viết lại: nó set `needs_detail = False` (feed đã có JD đầy đủ → 25 job = 1 request,
+không phải 26), chọn `HttpFetcher` thay vì browser, và lo phần lọc theo query ở
+`matches_query` (feed không có search phía server). Lọc theo **title + tag của site**,
+không bao giờ theo JD — JD nào cũng nhắc nửa ngành công nghệ ở mục "nice to have".
+
+**Đọc HẾT `robots.txt`, đừng `head -40`.** Jobicy để `Disallow: /api/` ở **dòng 48**;
+40 dòng đầu trông rất thoáng. Cách duy nhất đáng tin là chạy chính
+`RobotsPolicy(DEFAULT_USER_AGENT).allowed(url)` — nó parse cả file, và nó là thứ
+sẽ chặn lúc crawl thật.
+
+### Nguồn tier-2 đã loại (đừng kiểm tra lại từ đầu)
+
+| Nguồn | Lý do loại |
+|---|---|
+| **Remotive** | `robots.txt`: `Disallow: /api/*` — mà API là đường duy nhất dùng được. |
+| **Jobicy** | `robots.txt` dòng 48: `Disallow: /api/`. Filter `tag=` chạy rất tốt, `appliedFilters` còn echo lại — nhưng robots cấm thì dừng (nguyên tắc 5). |
+| **RemoteOK** | `Content-Signal: ai-train=no, use=reference` + `User-agent: ClaudeBot → Disallow: /`. **Giống hệt TopDev** → cần một quyết định rõ ràng, không mặc định làm. |
+| **Himalayas** | robots OK, nhưng API **bỏ qua mọi filter** (thử `q`/`search`/`keyword`/`skill`/`category`/`title` → `totalCount` y hệt 96.394 và cùng job đầu) và **âm thầm cắt `limit` xuống 20**. Feed newest-first đủ mọi ngành: 2/20 title là phần mềm → crawl "thành công" và giao job bác sĩ X-quang. |
+
+Bài học chung: một API trả 200 kèm filter bị bỏ qua **nguy hiểm hơn** một API trả lỗi.
+Nếu response có field kiểu `appliedFilters` thì **check nó**, đừng tin.
+
 ## Trạng thái hiện tại
 
 - ✅ Khung LaTeX Awesome-CV hoạt động (`awesome-cv.cls` + `fonts/`, build Docker). Nội dung CV nằm trong DB, không trong repo.
@@ -181,17 +208,32 @@ chứ không tạo bản trùng.
 
   **Crawl 0 job giờ có cảnh báo** (`base.crawl`): selector chết trả `[]` và crawl "thành công" với 0 job — không phân biệt được với query không có kết quả (PLAN §10 "cảnh báo khi 0 job"). Có cả cảnh báo khi `hits < limit` (VNW lazy-load).
 
+- ✅ **Phase 11** — Phân trang + nguồn tier-2: `base.BaseScraper.search()` đi **nhiều trang** thay vì 1 fetch (`search_url(query, page)`, `crawl.max_pages` mặc định 5). Dừng ở cái đến trước: đủ `limit`, hết `max_pages`, trang rỗng, `search_url` trả URL trùng/`""`, hoặc **trang lặp lại id đã thấy**. Cái cuối là cái gánh: site *nhận* `?page=2` rồi bỏ qua sẽ trả lại trang 1 — không dedup xuyên trang thì crawl gom cùng 10 job 5 lần và báo cáo một "deep sweep" thành công (đúng họ với bug `?keyword=` của TopCV). Hook mới: `needs_detail` (feed đã đủ JD → không fetch detail) và `matches_query` (feed không có search phía server). `fetch.HttpFetcher` (httpx thuần) cho nguồn phục vụ *document* chứ không phải *app* — browser không chỉ chậm mà **làm hỏng JSON**: Chromium bọc response thành `<html><body><pre>…`. `crawler/feed.py` = `FeedScraper` + `parse_rss_items` (stdlib XML: RSS là XML, parser HTML sẽ "sửa" tag hỏng thay vì báo) + `parse_json_feed` (lỗi có kèm 80 byte đầu → nhận ra ngay là trang lỗi HTML hay JSON bị bọc `<pre>`). **2 nguồn tier-2 mới**: `weworkremotely.py` (RSS mỗi category = 1 "trang"; `<title>` là `"Company: Job Title"` → tách ở `": "` **đầu tiên**) và `arbeitnow.py` (JSON, `?page=` phân trang thật). Config: `crawl.max_pages` + 2 dòng source; Settings page có ô "Max pages per site". 428 test pass; **verify live cả 6 nguồn qua API + Postgres 17 thật**: WWR 8 job (JetBrains/Stripe/Reddit/Coinbase, JD 3.5–8.7k chars), Arbeitnow 9 job Java thật, 9 row vào DB với `posted_at` đủ 9/9 và JD đủ 9/9, re-crawl idempotent (updated=9, inserted=0), settings round-trip mà `config.yaml` **byte-identical**.
+
+  **6 bug chỉ lộ ra khi chạy thật (test xanh suốt), đều đã có test ghim:**
+  1. **`config.local.yaml` xoá sổ nguồn mới.** `deep_merge` ghi đè list, mà trang Settings ghi **cả danh sách `sources`** như lúc save. Máy nào đã mở Settings một lần là 2 nguồn tier-2 **không tồn tại** — không phải "tắt sẵn" mà *vắng mặt*, nên chính trang Settings cũng không hiện để bật. Giờ `config.yaml` giữ **danh mục**, overlay chỉ mang **tuỳ chọn theo key** (`config.merge_sources`).
+  2. **Trang chặn anti-bot parse ra 0 hit → bị đọc là "hết kết quả".** Request thứ 2 tới TopCV trong cùng session trả Cloudflare "Sorry, you have been blocked", và crawl ghi "end of results" rồi đi tiếp — một lời nói dối. `PlaywrightFetcher` giờ **raise theo status code** (như `HttpFetcher` vẫn làm), nên 403 thành "page 2 failed (blocked — anti-bot), keeping 50 hit(s)". Lợi ích thật sự lớn hơn log: trước đây trang 403 vẫn được *parse* thành RawJob rỗng rồi ghi vào DB.
+  3. **Trang không có job hợp lệ ≠ hết trang.** Arbeitnow trang 3 có 100 job, 0 cái khớp "Java" — vòng lặp dừng ở đó. Nhưng trang 4 và 5 mỗi trang có 1 job Java thật (JOIN, Doctolib). Tách hai câu hỏi: "site có sang trang không" (so `page_ids` với id đã thấy) khác "mình có muốn gì trên trang này không". Sau khi sửa: 7 → **9 job**.
+  4. **TopCV trả 0 kết quả nhưng vẫn đổ 50 card gợi ý vào đúng container `.job-list-search-result`.** Query mặc định "Java Spring Boot Backend" (3 stack đầu) → slug 4 từ → `"Tuyển dụng 0 việc làm"` + 50 job **kế toán/QC/sale**. Không có cách nào phân biệt bằng cấu trúc, nên đọc **số đếm trong `<h1>`**; 0 thì trả `[]` + cảnh báo "try a shorter query". Không có số đếm = *không biết*, vẫn tin card (nếu TopCV đổi chữ thì không tự nhiên crawl 0 job mãi).
+  5. **`infer_level` match substring**: "intern" nằm trong "internal"/"international", "lead" trong "leadership" — job senior của Stripe bị ghi **`level=intern`**. Sai dữ liệu *trông như đúng*, chảy thẳng vào chart by_level và bộ lọc. Giờ match theo **từ**; và riêng "intern" trần chỉ tính trong **title** — trong JD nó là từ thường (tiếng Đức "beraten wir uns intern", gặp thật trên Arbeitnow), còn "internship"/"thực tập" thì rõ nghĩa ở đâu cũng được.
+  6. **`parse_posted_at` không đọc được ngày của feed.** RSS dùng RFC-822 ("Wed, 22 Jul 2026 07:00:51 +0000"), JSON API dùng unix epoch — cả hai đều rơi về `None`. Nguồn feed mà mất `posted_at` thì **không bao giờ được gắn 🔥 <48h** và biến mất khỏi chart by-day, tức là mất đúng thứ khiến feed đáng dùng. Epoch chỉ nhận 9–11 chữ số: `int()` không chặn sẽ đọc "2026" thành tháng 1/1970 — một câu trả lời sai tự tin, tệ hơn "không biết".
+
 ### Nợ kỹ thuật còn lại (roadmap PLAN.md §9 đã xong)
 
-- **Crawler**: ITviec + TopCV + VietnamWorks + LinkedIn(alerts) chạy thật; chỉ TopDev còn chưa có scraper (disabled trong config). Trang Runs chỉ cho chọn nguồn `enabled && ready` — `ready` = có scraper đăng ký trong `registry.SCRAPERS`, vì bật trong Settings không có nghĩa là đã implement. Cần `pip install -e '.[crawler]' && playwright install chromium` để crawl.
-- **Bật TopCV/VietnamWorks trên máy đã dùng Settings**: `config.yaml` giờ mặc định `enabled: true`, nhưng `config.local.yaml` (do trang Settings ghi, gitignored) **đè lên** và có thể vẫn giữ `enabled: false` từ trước. Bật lại trong Settings, hoặc xoá `config.local.yaml`.
-- **VietnamWorks lazy-load**: mỗi lần fetch search page chỉ render ~9–20 card (số còn lại là skeleton chờ scroll), nên `jobs_per_site` > ~9 sẽ không đủ hàng từ 1 trang. Chưa làm phân trang (`?page=N`) / scroll — `PlaywrightFetcher` cố tình là `(url) -> html` thuần nên thêm scroll sẽ đổi contract dùng chung cho mọi site.
+- **Crawler**: ITviec + TopCV + VietnamWorks + LinkedIn(alerts) + WeWorkRemotely + Arbeitnow chạy thật; chỉ TopDev còn chưa có scraper (disabled trong config). Trang Runs chỉ cho chọn nguồn `enabled && ready` — `ready` = có scraper đăng ký trong `registry.SCRAPERS`, vì bật trong Settings không có nghĩa là đã implement. Cần `pip install -e '.[crawler]' && playwright install chromium` để crawl (2 nguồn tier-2 **không cần** Playwright).
+- **Bật nguồn trên máy đã dùng Settings**: từ Phase 11, `config.local.yaml` merge **theo key** nên nguồn mới trong `config.yaml` luôn hiện ra; nhưng nếu overlay từng ghi `enabled: false` cho một key thì key đó vẫn tắt. Bật lại trong Settings, hoặc xoá `config.local.yaml`.
+- **VietnamWorks lazy-load — đã xử lý bằng phân trang** (không phải scroll): 1 fetch vẫn chỉ render ~9–20 card, nhưng `search()` đi tiếp `?page=N` nên `jobs_per_site` > 9 vẫn đủ hàng (verify thật: 9 → **29 job**; trang 3 lặp lại trang 2 và bị guard bắt). Giữ nguyên `PlaywrightFetcher` là `(url) -> html` thuần — scroll sẽ đổi contract dùng chung cho mọi site, phân trang thì không.
+- **TopCV thực tế chỉ lấy được ~50 job/lần crawl**: request thứ 2 trong cùng session bị Cloudflare chặn (403). Không phải bug — mặc định `jobs_per_site: 10` không bao giờ chạm tới, và khi chạm thì báo rõ "blocked — anti-bot" rồi giữ lại 50 hit của trang 1.
+- **Query quá dài làm TopCV trả 0 kết quả**: keyword vào *path* nên "Java Spring Boot Backend" thành slug 4 từ → 0 job (crawl cảnh báo "try a shorter query"). `default_query` = 3 stack đầu, nên đổi thứ tự `crawl.stacks` là đổi luôn chất lượng search TopCV.
+- **Nguồn tier-2 là remote/toàn cầu** (WWR: US/worldwide; Arbeitnow: Đức/EU, JD nhiều bài tiếng Đức) và **thiên về senior**, nên `exclude_keywords: [Senior, Lead, ...]` mặc định lọc đi khá nhiều. Tắt trong Settings nếu chỉ muốn job Việt Nam.
 - **TopDev**: `robots.txt` `Allow: /` cho `User-agent: *` nhưng chặn riêng `ClaudeBot` và đặt `Content-Signal: ai-train=no, use=reference`. Chưa làm — không phải vì thiếu code mà vì cần quyết định rõ, và TopCV/VNW đã là 2 nguồn core đã chốt.
 - **Bài học selector (ITviec)**: ITviec dùng utility CSS nên **match class theo substring là bẫy** — `[class*=city]` khớp `opa-city-50` khiến mọi job có location `"Hiring"`, `[class*=salary]` bắt trúng banner "IT Salary Report". Location/posted/salary giờ nhận diện **theo giá trị** (danh sách thành phố, regex thời gian), không theo cấu trúc. ITviec giấu lương sau login → `salary=None` là câu trả lời đúng, không phải placeholder. Test `test_itviec.py` ghim đúng các bẫy này. Bộ nhận diện theo giá trị nay dùng chung ở `crawler/vietnam.py` cho cả 3 site VN.
 - **SQLite KHÔNG enforce `VARCHAR(n)`, Postgres thì có.** Verify crawl trên SQLite là chưa đủ: một field quá dài chỉ nổ khi chạy Postgres thật, và nó nổ *giữa flush* → `PendingRollbackError` **rollback cả crawl**, 1 field xấu làm mất sạch cả batch. `normalize._fit()` giờ clamp `title/company/location/salary` theo đúng width cột (payload vẫn giữ text đầy đủ). Verify crawl phải chạy qua **Postgres + API thật**, không chỉ SQLite.
 - **Đừng quét salary trên cả body detail.** `.box-job-information-detail` của TopCV chứa cả panel "việc làm tương tự", và card trong đó **có lương riêng** sau khi hydrate → 2 job không liên quan cùng ra "20 - 60 triệu". Salary chỉ lấy từ nguồn chắc chắn thuộc job này: card của chính nó, hoặc `baseSalary`. Không có thì `None` là câu trả lời đúng. Cùng bài học với ITviec. `parse_salary` cũng có guard `MAX_SALARY_LEN=80` — lương là *label*, không phải đoạn văn (từng trả về nguyên blob 6.7 KB JD làm salary).
 - **`select_one("a, b")` KHÔNG theo thứ tự selector** mà theo thứ tự trong document. Trên card VietnamWorks link logo đứng trước `h2 a`, nên one-liner lấy trúng logo (không có text, chỉ có `title`) và title lặng lẽ đến từ sai element. Dùng helper `_first(root, *selectors)` khi thứ tự ưu tiên là có ý.
-- **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp).
+- **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp). Từ Phase 11 nó **raise theo status code** — trang chặn (403/429) là một *trang* hợp lệ với parser, nên nếu không chặn ở tầng fetch thì nó lặng lẽ thành "0 job".
+- **Chọn fetcher theo thứ site phục vụ, không theo thói quen**: `HttpFetcher` cho document (RSS/JSON/HTML server-render), `PlaywrightFetcher` cho app (ITviec/VNW). Đừng truyền 1 fetcher dùng chung cho mọi scraper trong production — `build_scrapers(fetcher=...)` chỉ dành cho test, vì browser sẽ bọc JSON thành `<pre>` và feed parser vỡ.
+- **`infer_level` vẫn quét cả JD**, nên một JD nhắc "we hire senior engineers" có thể kéo job mid thành senior. Đã sửa phần substring (Phase 11) nhưng phạm vi quét thì chưa thu hẹp — thu về title-only sẽ mất các job VN ghi "thực tập sinh" trong body.
 - **Tailor/apply vẫn chạy đồng bộ** trong request (~30–60s). `TaskQueue` đã có sẵn và generic — chuyển sang background chủ yếu là việc của frontend (poll/WS thay vì await response).
 - **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco), diff giữa 2 version bất kỳ. `tex_snapshot` đã lưu mỗi version nên diff làm sau rất nhẹ.
 - **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.

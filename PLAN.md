@@ -139,7 +139,7 @@ Crawler thiết kế pluggable nên **thêm nguồn = thêm 1 scraper + 1 dòng 
 | Tier | Nguồn | Crawl được? | Ưu tiên | Ghi chú |
 |---|---|---|---|---|
 | **1 — MVP (job board IT, có cấu trúc)** | **ITviec, TopDev, TopCV, VietnamWorks** | ✅ Playwright+stealth | Cao nhất | TopDev tập trung IT (rất hợp dev), TopCV volume lớn hợp fresher. Đúng đối tượng Java backend. |
-| **2 — Job board mở rộng (VN + remote)** | CareerViet, Glints, Vieclam24h, JobHopin, Wellfound, RemoteOK, WeWorkRemotely, Himalayas | ✅ (RemoteOK/WWR/Himalayas có **RSS/JSON công khai** → dễ & sạch nhất) | Trung | Glints hợp startup junior–mid. Wellfound có trang Vietnam/HCMC. Ưu tiên nguồn có feed chính thức. |
+| **2 — Job board mở rộng (VN + remote)** | ✅ **WeWorkRemotely** (RSS), ✅ **Arbeitnow** (JSON, có `?page=`) — đã làm ở Phase 11. Còn lại: CareerViet, Glints, Vieclam24h, JobHopin, Wellfound | ✅ feed chính thức → không cần browser, không anti-bot, JD đầy đủ trong 1 request | Trung | Glints hợp startup junior–mid. Wellfound có trang Vietnam/HCMC. **Đã kiểm tra và LOẠI**: Remotive + Jobicy (`robots.txt` cấm `/api/`), RemoteOK (`ClaudeBot: Disallow` + `Content-Signal: ai-train=no` — giống TopDev), Himalayas (API bỏ qua mọi filter + cắt `limit` xuống 20 → trả job ngoài ngành). Chi tiết ở CLAUDE.md "Nguồn tier-2 đã loại". |
 | **3 — Career page công ty (qua ATS adapter)** | FPT Software, NashTech, KMS, TMA, VNG/Zalo, MoMo, Shopee, Grab, Tiki, Techcombank, VPBank, One Mount, Cốc Cốc, EPAM, Endava, Bosch, Renesas… | ✅ **nếu chạy ATS chuẩn** (Greenhouse/Lever/Ashby/Workable/Workday có JSON endpoint đoán được); ⚠️ nếu custom | Trung–cao | **Một `ATSAdapter` phủ nhiều công ty**: detect nền tảng → gọi API board tương ứng. "Job ngon thường lên career page trước / chỉ referral" → nguồn chất lượng cao. |
 | **4 — Freelance/contract** | Upwork, Toptal, Arc.dev, Turing | ⚠️ mô hình khác (contract, cần profile mạnh) | Thấp | Ngoài scope tailor-CV-nộp-đơn hiện tại; để sau nếu cần. |
 | **5 — Không crawl (manual/referral)** | **Facebook groups**, headhunter (Navigos, Adecco, Manpower, JAC, Robert Walters, HR2B…), Discord/Telegram/Zalo dev, alumni/meetup, **LinkedIn** | ❌ | — | FB groups & LinkedIn: login-wall + vi phạm ToS → **không auto-crawl**. Đây là kênh quan hệ/referral, JobPilot chỉ hỗ trợ gián tiếp (nhắc user, lưu CV tailored để gửi tay). |
@@ -287,6 +287,9 @@ CV_Template/
 - **Phase 6 — Apply dispatcher + Applications board**: email full-auto (test email mình trước) → portal pre-fill; Kanban applications + error reporting.
 - **Phase 7 — Slack (kênh phụ)**: mirror thông báo + nút nhanh (Chọn/Approve/Sửa/Nộp) đồng bộ cùng state.
 - **Phase 8 — Orchestration & polish**: state machine end-to-end, job queue, cron tùy chọn, logging, Runs page.
+- **Phase 9 — TopCV + VietnamWorks chạy thật**: parser schema.org `JobPosting` dùng chung, nhận diện field theo giá trị (`crawler/vietnam.py`).
+- **Phase 10 — Tailor + apply rời request path**: `POST /tailor|edit|apply` trả 202 + task, tiến độ qua WS.
+- **Phase 11 — Phân trang + nguồn tier-2**: `BaseScraper.search()` đi nhiều trang (`crawl.max_pages`) với guard "site bỏ qua `?page=`"; `FeedScraper` + `HttpFetcher` cho nguồn có feed chính thức; thêm WeWorkRemotely + Arbeitnow.
 
 **Định nghĩa "xong" cho MVP demo (theo yêu cầu user)**: crawl ~10 job từ 3 site → hiện trên **Web Dashboard** (+ thông báo Slack) → user chọn → tailor → **review PDF+diff** (duyệt/sửa) → email/portal apply → báo lỗi nếu fail. Slack đồng bộ cùng state.
 

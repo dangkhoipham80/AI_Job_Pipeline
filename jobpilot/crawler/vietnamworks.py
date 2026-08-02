@@ -98,8 +98,17 @@ def _leaves(root: Tag, max_len: int = 80) -> list[str]:
 class VietnamWorksScraper(BaseScraper):
     source = "vietnamworks"
 
-    def search_url(self, query: str) -> str:
-        return f"{BASE_URL}/viec-lam?q={quote_plus(query or 'java')}"
+    def search_url(self, query: str, page: int = 1) -> str:
+        """``/viec-lam?q=…&page=N``.
+
+        Paging is the answer to this site's lazy loading, not a bonus: one fetch
+        renders only ~9-20 cards and the rest are skeletons awaiting a scroll,
+        so ``jobs_per_site`` above that used to come back short with a warning.
+        Asking for the next page keeps ``PlaywrightFetcher`` a plain
+        ``(url) -> html`` function, which scrolling inside it would not.
+        """
+        url = f"{BASE_URL}/viec-lam?q={quote_plus(query or 'java')}"
+        return url if page <= 1 else f"{url}&page={page}"
 
     def _native_id(self, url: str) -> str:
         m = _JV_ID_RE.search(url)

@@ -334,6 +334,8 @@ export interface Settings {
   app: { timezone: string; edit_max_rounds: number };
   crawl: {
     jobs_per_site: number;
+    /** Listing pages walked per site to reach jobs_per_site. A ceiling. */
+    max_pages: number;
     fresh_hours: number;
     match_score_min: number;
     stacks: string[];

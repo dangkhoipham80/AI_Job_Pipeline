@@ -86,11 +86,17 @@ export function Settings() {
         saving={saving === "crawl"}
         saved={saved === "crawl"}
       >
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <NumberField
             label="Jobs per site"
             value={draft.crawl.jobs_per_site}
             onChange={(v) => set({ crawl: { ...draft.crawl, jobs_per_site: v } })}
+          />
+          <NumberField
+            label="Max pages per site"
+            hint="a ceiling, not a target"
+            value={draft.crawl.max_pages}
+            onChange={(v) => set({ crawl: { ...draft.crawl, max_pages: v } })}
           />
           <NumberField
             label="Fresh window (hours)"

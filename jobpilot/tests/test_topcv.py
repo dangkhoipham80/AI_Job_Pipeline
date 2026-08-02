@@ -218,6 +218,50 @@ def test_search_url_puts_the_keyword_in_the_path():
     assert scraper.search_url("") == "https://www.topcv.vn/tim-viec-lam-java"
 
 
+ZERO_RESULT_HTML = """
+<h1>Tuyển dụng 0 việc làm Java Spring Boot Backend [Update 02/08/2026]</h1>
+<div class="job-list-search-result">
+  <div class="job-item-search-result" data-job-id="9990001">
+    <h3 class="title"><a href="/viec-lam/ke-toan-tong-hop/9990001.html">
+      <span title="Kế Toán Tổng Hợp">Kế Toán Tổng Hợp</span></a></h3>
+    <a class="company" href="/cong-ty/x/1.html"><span class="company-name">Công ty X</span></a>
+  </div>
+</div>
+"""
+
+COUNTED_RESULT_HTML = ZERO_RESULT_HTML.replace("0 việc làm", "86 việc làm")
+
+
+def test_a_zero_result_search_returns_nothing_despite_a_page_full_of_cards():
+    """TopCV answers "Tuyển dụng 0 việc làm …" and then fills the *same*
+    `.job-list-search-result` container with 50 recommendations — verified live,
+    the first being a general accountant. There is no structural difference
+    between those and real hits, so the declared count is what decides."""
+    assert TopCVScraper().parse_search(ZERO_RESULT_HTML) == []
+
+
+def test_a_stated_count_above_zero_keeps_the_cards():
+    hits = TopCVScraper().parse_search(COUNTED_RESULT_HTML)
+    assert [h.native_id for h in hits] == ["9990001"]
+
+
+def test_no_stated_count_means_unknown_not_zero():
+    """If TopCV rewords the heading, fall back to trusting the cards rather than
+    silently returning nothing — the failure mode would be a crawl that finds
+    zero jobs forever."""
+    hits = TopCVScraper().parse_search(SEARCH_HTML)
+    assert len(hits) > 0
+
+
+def test_page_goes_in_the_query_string_even_though_the_keyword_may_not():
+    """`?keyword=` is ignored by TopCV but `?page=` is honoured — verified live:
+    page 1 and page 2 of the same search share zero job ids."""
+    scraper = TopCVScraper()
+    assert scraper.search_url("java", 2) == "https://www.topcv.vn/tim-viec-lam-java?page=2"
+    # Page 1 keeps the bare path, so a one-page crawl fetches the canonical URL.
+    assert scraper.search_url("java", 1) == scraper.search_url("java")
+
+
 def test_title_anchor_prefers_the_titled_heading_over_an_earlier_one():
     """`select_one("h3.title a, h3 a")` resolves by document order, so a promo
     widget rendered ahead of the real heading would supply both the title and the

@@ -123,7 +123,7 @@ def test_site_failure_is_isolated(session_factory):
     class Boom(BaseScraper):
         source = "boom"
 
-        def search_url(self, query):
+        def search_url(self, query, page=1):
             return "x"
 
         def parse_search(self, html):
