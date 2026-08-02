@@ -25,6 +25,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from jobpilot.apply.followup import first_step
 from jobpilot.apply.email import EmailError, OutgoingEmail, build_email, recipient_of, send_email
 from jobpilot.apply.letter import LetterEngine
 from jobpilot.apply.portal import Handoff, prepare_handoff
@@ -282,6 +283,9 @@ def _record(
     meta: dict | None = None,
     error: str | None = None,
 ) -> Application:
+    # An application that really went out starts its follow-up clock here. A dry
+    # run does not: there is nobody to chase about a message that never left.
+    step = first_step(result)
     app = Application(
         job_id=job.id,
         cv_pdf_path=str(cv_pdf),
@@ -291,6 +295,8 @@ def _record(
         error_msg=error,
         submitted_at=vn_now() if submitted else None,
         meta=meta or {},
+        followup_stage=step.stage,
+        next_followup_at=step.due_at,
     )
     db.add(app)
     db.flush()

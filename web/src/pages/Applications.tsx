@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { FollowUps } from "@/components/FollowUps";
 import { relativeTime } from "@/lib/format";
 import { Badge, Button, Card, CardBody, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ const COLUMNS: { key: ApplyResult; title: string; hint: string; accent: string }
 export function Applications({ version }: { version: number }) {
   const { data, loading, error, refetch } = useApi(() => api.applications(), [version]);
   const settings = useApi(() => api.applySettings(), []);
+  const followups = useApi(() => api.followups(), [version]);
   const [busy, setBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -80,6 +82,14 @@ export function Applications({ version }: { version: number }) {
           <span>{actionError}</span>
         </Card>
       )}
+
+      <FollowUps
+        items={followups.data ?? []}
+        onChange={() => {
+          followups.refetch();
+          refetch();
+        }}
+      />
 
       {error ? (
         <Card className="p-6 text-sm">

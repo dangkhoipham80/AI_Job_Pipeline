@@ -306,6 +306,11 @@ export interface Application {
   cv_pdf_path: string | null;
   apply_target: string | null;
   meta: { email?: EmailSummary; handoff?: HandoffSummary };
+  /** Where this sits in the follow-up cadence: first_nudge | second_nudge | done. */
+  followup_stage: string | null;
+  next_followup_at: string | null;
+  followup_due: boolean;
+  followup_hint: string;
 }
 
 export interface ApplySettings {

@@ -112,6 +112,13 @@ class Application(Base):
     # Channel-specific detail: the email summary, or the portal handoff package.
     meta: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Where you are in the follow-up cadence, and when the next step is due.
+    # Both NULL when nothing actually went out — a dry run owes no follow-up,
+    # and NULL says that more honestly than a date already in the past.
+    next_followup_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    followup_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     job: Mapped[Job] = relationship(back_populates="applications")
 
