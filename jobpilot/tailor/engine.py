@@ -50,7 +50,55 @@ class TailorEngine(Protocol):
     ) -> TailorResult: ...
 
 
-class ClaudeTailorEngine:
+class _GuardedTailor:
+    """The part of tailoring that has nothing to do with which model runs it.
+
+    Build the prompt, check the plan, and on a violation give the model one
+    corrective round with the exact list of what it broke. Subclasses supply
+    ``_parse`` and nothing else.
+
+    This is a base class rather than a copied method because the alternative is
+    two guardrail loops that agree today and quietly stop agreeing later — the
+    same reason ``tailor/diff.py`` is parameterised by ``DiffLabels`` instead of
+    being forked per caller. A local model needs the retry *more* than Claude
+    does, so the two must be the same retry.
+    """
+
+    def _parse(self, system: str, messages: list[dict]) -> TailorPlan:  # pragma: no cover
+        raise NotImplementedError
+
+    def tailor(
+        self,
+        master: CvDocument,
+        job: Job,
+        instruction: str | None = None,
+        previous: TailorPlan | None = None,
+    ) -> TailorResult:
+        system = prompts.system_prompt(master)
+        user = prompts.user_prompt(job, instruction=instruction, previous=previous)
+        messages: list[dict] = [{"role": "user", "content": user}]
+
+        plan = self._parse(system, messages)
+        report = check_plan(plan, master)
+        if report.ok:
+            return TailorResult(plan=plan, attempts=1)
+
+        # One corrective round — the model gets to see exactly what it broke.
+        messages += [
+            {"role": "assistant", "content": plan.model_dump_json()},
+            {"role": "user", "content": prompts.retry_prompt(report.violations)},
+        ]
+        retried = self._parse(system, messages)
+        second = check_plan(retried, master)
+        if not second.ok:
+            raise GuardrailViolation(
+                "plan still violates the CV guardrails after one retry: "
+                + "; ".join(second.violations)
+            )
+        return TailorResult(plan=retried, attempts=2, retried_for=report.violations)
+
+
+class ClaudeTailorEngine(_GuardedTailor):
     """Calls the Claude API and returns a guardrail-checked plan."""
 
     def __init__(self, api_key: str | None = None, model: str = MODEL) -> None:
@@ -104,35 +152,32 @@ class ClaudeTailorEngine:
             raise TailorError("Claude returned no parsable plan")
         return plan
 
-    def tailor(
-        self,
-        master: CvDocument,
-        job: Job,
-        instruction: str | None = None,
-        previous: TailorPlan | None = None,
-    ) -> TailorResult:
-        system = prompts.system_prompt(master)
-        user = prompts.user_prompt(job, instruction=instruction, previous=previous)
-        messages: list[dict] = [{"role": "user", "content": user}]
 
-        plan = self._parse(system, messages)
-        report = check_plan(plan, master)
-        if report.ok:
-            return TailorResult(plan=plan, attempts=1)
+class OllamaTailorEngine(_GuardedTailor):
+    """The same guardrail loop, driven by a model on your own machine.
 
-        # One corrective round — the model gets to see exactly what it broke.
-        messages += [
-            {"role": "assistant", "content": plan.model_dump_json()},
-            {"role": "user", "content": prompts.retry_prompt(report.violations)},
-        ]
-        retried = self._parse(system, messages)
-        second = check_plan(retried, master)
-        if not second.ok:
-            raise GuardrailViolation(
-                "plan still violates the CV guardrails after one retry: "
-                + "; ".join(second.violations)
-            )
-        return TailorResult(plan=retried, attempts=2, retried_for=report.violations)
+    Identical rules, identical retry — only the call differs. What changes is
+    the failure profile: a smaller model breaks the guardrail more often, which
+    costs an extra round rather than producing a CV that claims something
+    untrue. The schema and the guard are what make that trade safe.
+    """
+
+    def __init__(self, client=None, model: str | None = None) -> None:
+        from jobpilot.config import get_config
+        from jobpilot.llm.ollama import OllamaClient
+
+        cfg = get_config().llm
+        self.client = client or OllamaClient(
+            model=model or cfg.tailor_model or cfg.model, host=cfg.host
+        )
+
+    def _parse(self, system: str, messages: list[dict]) -> TailorPlan:
+        from jobpilot.llm.ollama import OllamaError
+
+        try:
+            return self.client.structured(system=system, messages=messages, schema=TailorPlan)
+        except OllamaError as exc:
+            raise TailorError(str(exc)) from exc
 
 
 @dataclass
@@ -155,4 +200,9 @@ class FixtureEngine:
 
 
 def default_engine() -> TailorEngine:
+    """The engine `llm.tailor` (or `llm.provider`) asks for."""
+    from jobpilot.config import get_config
+
+    if get_config().llm.for_task("tailor") == "ollama":
+        return OllamaTailorEngine()
     return ClaudeTailorEngine()

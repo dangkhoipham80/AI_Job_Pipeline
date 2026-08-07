@@ -268,5 +268,65 @@ class FixtureLetterEngine:
         return LetterResult(letter=self.letter)
 
 
+class OllamaLetterEngine:
+    """A cover letter written on your own machine.
+
+    Of the three calls this is the one where model size shows most: it is free
+    prose that a person reads and judges you on, not a permutation of numbered
+    items. The vocabulary guardrail still holds — a local model cannot claim a
+    technology the CV lacks — but "true" and "well written" are different bars,
+    and only the first is enforceable. Read what it produces before sending; the
+    approval gate is already there.
+    """
+
+    def __init__(self, client=None, model: str | None = None) -> None:
+        from jobpilot.config import get_config
+        from jobpilot.llm.ollama import OllamaClient
+
+        cfg = get_config().llm
+        self.client = client or OllamaClient(model=model or cfg.model, host=cfg.host)
+
+    def _parse(self, system: str, messages: list[dict]) -> CoverLetter:
+        from jobpilot.llm.ollama import OllamaError
+
+        try:
+            return self.client.structured(system=system, messages=messages, schema=CoverLetter)
+        except OllamaError as exc:
+            raise TailorError(str(exc)) from exc
+
+    def write(self, master: CvDocument, job: Job, plan: TailorPlan | None = None) -> LetterResult:
+        from jobpilot.tailor.prompt import render_master
+
+        system = f"{LETTER_RULES}\n\n{render_master(master)}"
+        messages: list[dict] = [{"role": "user", "content": letter_prompt(job, plan)}]
+
+        letter = self._parse(system, messages)
+        report = check_letter(letter, master, job, plan)
+        if report.ok:
+            return LetterResult(letter=letter)
+
+        messages += [
+            {"role": "assistant", "content": letter.model_dump_json()},
+            {
+                "role": "user",
+                "content": "That letter was rejected:\n"
+                + "\n".join(f"  - {v}" for v in report.violations)
+                + "\n\nRewrite it within the rules.",
+            },
+        ]
+        retried = self._parse(system, messages)
+        second = check_letter(retried, master, job, plan)
+        if not second.ok:
+            raise GuardrailViolation(
+                "cover letter still unsupported after one retry: " + "; ".join(second.violations)
+            )
+        return LetterResult(letter=retried, attempts=2)
+
+
 def default_letter_engine() -> LetterEngine:
+    """The engine `llm.letter` (or `llm.provider`) asks for."""
+    from jobpilot.config import get_config
+
+    if get_config().llm.for_task("letter") == "ollama":
+        return OllamaLetterEngine()
     return ClaudeLetterEngine()

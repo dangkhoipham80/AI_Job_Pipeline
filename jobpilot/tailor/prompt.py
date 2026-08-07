@@ -51,11 +51,18 @@ the summary, so most of your work is deciding what to promote and what to hide.
 - `summary`: rewrite the Summary in 2-3 sentences aimed at this role, using the
   job's vocabulary **only where the CV already supports it**. Every technology
   you name must appear somewhere in the Master CV. Keep it one paragraph.
-- `section_order`: list every section key, most relevant to this job first.
-  Education and honors usually stay where they are.
+- `section_order`: either leave it **empty** to keep the current order, or list
+  **every** section key exactly once, most relevant to this job first. A partial
+  list is rejected: a section left out of the order would silently disappear,
+  and hiding a section is what `sections.enabled` is for. Education and honors
+  usually stay where they are.
 - `sections`: set `enabled: false` on a section only if the CV would otherwise
-  run past one page. Use `entry_order` / `item_order` to put the most relevant
-  entries and skill lines first; dropping an index removes that entry entirely.
+  run past one page. Reorder with the field that matches the section's `type`,
+  shown in the outline above — using the wrong one is rejected:
+    * `type=education` / `experience` / `projects` hold **entries** → `entry_order`
+    * `type=bullets` holds **items** → `item_order`
+    * `type=paragraph` holds neither → leave both empty
+  Dropping an index removes that entry entirely.
 - `entries`: within an entry, `bullet_order` promotes the bullets that match the
   job (and may drop the least relevant ones), and `tech_stack_order` puts the
   technologies the job asks for at the front.
@@ -150,13 +157,64 @@ def user_prompt(
     return "\n".join(parts)
 
 
+#: What to say about each kind of violation, keyed by how the guard phrases it.
+#: The corrective round is only corrective if it addresses what actually broke —
+#: a fixed sentence about indices is no help to a plan that broke `section_order`,
+#: which is exactly how a local model failed the same way twice in a row.
+_REMEDIES: tuple[tuple[str, str], ...] = (
+    (
+        "section_order",
+        "For `section_order`: either return it EMPTY to keep the current order, or "
+        "list every section key from the outline exactly once. Do not return a "
+        "partial list — to drop a section from the CV set `enabled: false` on it "
+        "in `sections` instead.",
+    ),
+    (
+        "summary",
+        "For `summary`: name only technologies that already appear in the Master CV "
+        "outline above. If the job asks for something the CV lacks, leave it out.",
+    ),
+    (
+        "index",
+        "For the index fields: every index must point at an entry, bullet or item "
+        "that exists in the Master CV outline, counting from 0.",
+    ),
+    (
+        "item_order",
+        "Reorder with the field that matches the section's `type` from the outline: "
+        "education / experience / projects hold entries and take `entry_order`; "
+        "bullets holds items and takes `item_order`; paragraph takes neither.",
+    ),
+    (
+        "entry_order",
+        "Reorder with the field that matches the section's `type` from the outline: "
+        "education / experience / projects hold entries and take `entry_order`; "
+        "bullets holds items and takes `item_order`; paragraph takes neither.",
+    ),
+    (
+        "evidence",
+        "For `evidence`: cite the section key and entry title for HAVE and PARTIAL, "
+        "and leave it empty for MISSING.",
+    ),
+)
+
+
 def retry_prompt(violations: list[str]) -> str:
-    """Sent after a plan fails the guardrails, to get one corrected attempt."""
+    """Sent after a plan fails the guardrails, to get one corrected attempt.
+
+    Repeats the rule behind each violation rather than a generic reminder. A
+    capable model recovers from the violation list alone; a smaller one needs to
+    be told which rule it broke, and telling it costs nothing.
+    """
     listed = "\n".join(f"  - {v}" for v in violations)
+    blob = " ".join(violations).lower()
+    remedies = [text for key, text in _REMEDIES if key in blob]
+    if not remedies:
+        remedies = [
+            "Indices must point at content that exists in the Master CV outline, and "
+            "the summary may only name technologies the CV already contains."
+        ]
     return (
         "That plan was rejected by the CV guardrails:\n"
-        f"{listed}\n\n"
-        "Return a corrected plan. Indices must point at content that exists in the "
-        "Master CV outline, and the summary may only name technologies the CV "
-        "already contains."
+        f"{listed}\n\n" + "\n".join(remedies) + "\n\nReturn a corrected plan."
     )

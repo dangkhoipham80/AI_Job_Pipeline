@@ -210,10 +210,19 @@ def test_the_quote_match_survives_reflowed_whitespace():
     )
 
 
-def test_only_unrelated_may_come_without_evidence():
+def test_evidence_is_required_only_for_what_gets_shown():
+    """Found by running a real local model: it answered `auto_ack` correctly and
+    left the quote empty, and the guard filed that correct answer as a failure.
+
+    A quote exists so you can overrule a label by reading one line. `auto_ack`
+    and `unrelated` are recorded and never offered, so there is no label to
+    overrule and nothing for the evidence to do.
+    """
     m = mail(text="Your parcel is out for delivery.")
     assert check_verdict(MailVerdict(verdict="unrelated"), m) == []
-    assert "no supporting quote" in " ".join(check_verdict(MailVerdict(verdict="replied"), m))
+    assert check_verdict(MailVerdict(verdict="auto_ack"), m) == []
+    for shown in ("replied", "interview", "offer", "rejected"):
+        assert "no supporting quote" in " ".join(check_verdict(MailVerdict(verdict=shown), m))
 
 
 # --------------------------------------------------------------------------- #

@@ -20,6 +20,7 @@ from jobpilot.api.schemas import ApplicationOut, InboxSettingsOut, SuggestionOut
 from jobpilot.api.ws import manager
 from jobpilot.apply.inbox import accept_suggestion, dismiss_suggestion, pending_suggestions
 from jobpilot.apply.outcome import OutcomeRefused
+from jobpilot import llm
 from jobpilot.config import get_config
 from jobpilot.orchestrator import TaskBusy, inbox_body, queue
 from jobpilot.store.models import Job
@@ -38,6 +39,11 @@ def sync(db: Session = Depends(get_db)) -> JSONResponse:
     blocker = get_config().apply.inbox_blocker()
     if blocker:
         raise HTTPException(status_code=409, detail=blocker)
+    # A stopped local model is knowable now. Letting it through would spend a
+    # mailbox read before failing on the first message it matched.
+    model_blocker = llm.blocker("classify")
+    if model_blocker:
+        raise HTTPException(status_code=409, detail=model_blocker)
     try:
         task = queue.submit("inbox", inbox_body(), label="inbox · reading replies", exclusive=True)
     except TaskBusy as exc:
