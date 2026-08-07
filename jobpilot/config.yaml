@@ -87,3 +87,36 @@ cv:
   out_dir: out                # tailored CVs land in out/<job_id>/
   docker_image: csmith/awesome-cv-builder
   theme: awesome-red          # default Awesome-CV color theme
+
+# --------------------------------------------------------------------------- #
+# Which model runs which job (Phase 20)
+# --------------------------------------------------------------------------- #
+# Three calls, three different levels of difficulty — so this is per task
+# rather than one global switch:
+#
+#   classify  read one employer email -> one of six labels + one quoted
+#             sentence. The easiest by far, and its guardrail is mechanical
+#             (the quote either appears in the message or the suggestion is
+#             dropped). Safe to run locally.
+#   tailor    reorder numbered CV items + write one summary paragraph. The
+#             plan is index-based, so the model ranks rather than writes.
+#             The guardrail catches invented skills and invalid indices — it
+#             cannot catch a *truthful but poor* ranking, so judge this one on
+#             the CV Review page before trusting it.
+#   letter    300 words of prose a stranger will judge you on. The place where
+#             model quality shows most, and the cheapest call to keep paid.
+#
+# provider = the default for all three; the per-task keys override it.
+# Local models need `ollama serve` running and the model pulled:
+#   ollama pull qwen2.5:7b
+llm:
+  provider: claude            # claude | ollama
+  host: http://127.0.0.1:11434
+  model: qwen2.5:7b           # local model used unless a task overrides it
+
+  classify: ollama            # start here: safest of the three
+  tailor: ""                  # "" = use `provider`
+  letter: ""
+
+  tailor_model: ""            # e.g. qwen2.5:14b — slower, better at ranking
+  classify_model: ""

@@ -482,13 +482,14 @@ def inbox_body(
     """
 
     def body(progress: Progress) -> dict:
+        from jobpilot import llm
         from jobpilot.apply.inbox import default_classifier, sync_inbox
         from jobpilot.config import get_config, get_secrets
         from jobpilot.crawler.mailbox import ImapMailbox
         from jobpilot.store.db import session_scope
 
         cfg = get_config()
-        blocker = cfg.apply.inbox_blocker()
+        blocker = cfg.apply.inbox_blocker() or llm.blocker("classify")
         if blocker:
             raise RuntimeError(blocker)
 

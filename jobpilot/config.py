@@ -91,6 +91,41 @@ class EmailCfg(BaseModel):
     subject_template: str = "Application for {title} — {name}"
 
 
+class LlmCfg(BaseModel):
+    """Which model runs which job.
+
+    Deliberately **per task**, because the three calls are not equally hard.
+    Classifying an email into one of six labels and copying one sentence out of
+    it is nothing like writing 300 words a stranger will judge you on. The
+    tailor sits between them, and its schema does most of the work: the plan is
+    index-based, so the model reorders numbered items rather than writing a CV.
+
+    Default stays ``claude`` — switching a user's model silently would change
+    what their applications say.
+    """
+
+    provider: Literal["claude", "ollama"] = "claude"
+    host: str = "http://127.0.0.1:11434"
+    #: Local model used for any task pointed at ollama without its own override.
+    model: str = "qwen2.5:7b"
+
+    # "" means "use `provider`". Set one to mix — the usual shape is a local
+    # classifier and a paid letter, because that is where the money buys the most.
+    tailor: Literal["", "claude", "ollama"] = ""
+    letter: Literal["", "claude", "ollama"] = ""
+    classify: Literal["", "claude", "ollama"] = ""
+
+    tailor_model: str = ""
+    classify_model: str = ""
+
+    def for_task(self, task: Literal["tailor", "letter", "classify"]) -> str:
+        """The provider that should run ``task``."""
+        return getattr(self, task) or self.provider
+
+    def model_for(self, task: Literal["tailor", "classify"]) -> str:
+        return getattr(self, f"{task}_model") or self.model
+
+
 class InboxCfg(BaseModel):
     """Reading employer replies out of your own mailbox (Phase 19).
 
@@ -151,6 +186,7 @@ class Config(BaseModel):
     ats: AtsCfg = Field(default_factory=AtsCfg)
     apply: ApplyCfg = Field(default_factory=ApplyCfg)
     cv: CvCfg = Field(default_factory=CvCfg)
+    llm: LlmCfg = Field(default_factory=LlmCfg)
 
     def enabled_sources(self) -> list[SourceCfg]:
         return [s for s in self.sources if s.enabled]

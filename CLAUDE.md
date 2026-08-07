@@ -223,8 +223,9 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 17 | Cover letter ra `.tex` → PDF, đính kèm email; text vẫn là bản chính | `apply/letter_pdf.py`, migration 0006 |
 | 18 | Chuyện gì xảy ra **sau** khi nộp: replied/interview/offer/rejected + lịch sử | `apply/outcome.py`, migration 0007 |
 | 19 | Đọc thư NTD → **đề xuất** outcome, user bấm mới ghi | `apply/inbox.py`, migration 0008 |
+| 20 | Chạy model **trên máy mình** (Ollama) — chọn provider theo từng việc | `llm/ollama.py`, `config.llm` |
 
-612 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+629 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
@@ -237,6 +238,25 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
   `spacing_reliable=False` thay vì kết luận PDF lỗi.
 - **Đừng để công cụ đo bịa ra finding.** `pypdf` đọc mất dấu cách rồi kết luận CV hỏng —
   PDF chưa bao giờ hỏng, công cụ đo mới hỏng.
+
+### Model backend (Phase 20) — đọc trước khi đổi provider
+
+- **Chọn theo từng việc, không phải một công tắc.** `llm.classify` / `llm.tailor` / `llm.letter`
+  (mặc định rơi về `llm.provider` = `claude`). Đo thật trên `qwen2.5:7b`, RTX 3060 6GB:
+  **classify 5/5 nhãn đúng (~2s/thư) → dùng local**; **tailor 0/4 kể cả sau ba vòng vá prompt
+  → giữ Claude**. Tailor hỏng ở chỗ *điều hướng schema* (nhầm `entry_order`↔`item_order`,
+  và nhầm **hoán vị** qua từng vòng vá), **không** phải ở truthfulness.
+- **Vòng guardrail dùng chung, tuyệt đối không fork.** `_GuardedTailor` giữ prompt+check+retry;
+  engine chỉ cấp `_parse`. Có test ghim `OllamaTailorEngine.tailor is ClaudeTailorEngine.tailor` —
+  model yếu **cần** vòng retry đó hơn Claude, nên hai bên phải là cùng một vòng.
+- **Lý do dùng local là riêng tư, không phải tiền.** 1 tailor ≈ $0.057, 100 tailor + 300 email ≈ $7.
+  Nhưng input của tailor là **cả Master CV**, và **free tier** của Gemini cho phép train trên
+  input/output — trái nguyên tắc 3. Local thì CV không rời khỏi máy.
+- **Cần `ollama serve` + `ollama pull <model>`.** `llm.probe()` báo lý do trước khi task được
+  xếp hàng, giống cách `apply.email` báo blocker — không để thành task chết giữa chừng.
+- **Prompt phải nói ra thứ schema đã ngầm định.** `section_order` để rỗng = giữ nguyên; outline
+  in `type=` nhưng phải giải thích kiểu nào dùng field nào. `retry_prompt` phải nhắc lại **đúng
+  luật vừa vỡ** (`_REMEDIES`) — bản cũ khuyên về index/summary trong khi cái vỡ là `section_order`.
 
 ### Inbox sync (Phase 19) — đọc trước khi đụng vào `apply/inbox.py`
 
@@ -298,7 +318,14 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 - **Cover letter đã ra PDF** (Phase 17): template riêng `cv/templates/awesome_cv/cover_letter.tex.j2` dùng chung `_preamble.tex.j2` với CV. **`awesome-cv.cls` bản trim trong repo KHÔNG có macro letter nào** (`\cvletter`, `\recipient`… đều không tồn tại — grep class file trước khi tin spec). Text vẫn là bản chính (email mang text ở body, PDF là đính kèm); build hỏng thì **đơn vẫn gửi**, lý do vào `meta.letter.pdf_error`. Ngắt đoạn trong template LaTeX phải viết `\par` tường minh — Jinja `trim_blocks` ăn dòng trống và biến 2 đoạn thành 1 dòng dính liền, compile vẫn sạch.
 - **Cần `pip install -e '.[cv]'`** cho `pypdf`, nếu không page count trả `None` (badge "1 trang" biến mất, không còn cảnh báo CV tràn 2 trang). Build PDF vẫn chạy bình thường — chỉ mất phần đếm trang.
 - **Queue vẫn 1 worker**: tailor xếp sau một crawl đang chạy sẽ đứng `queued` vài phút. Đúng nghĩa "queued", nhưng nếu thấy vướng thì nâng `max_workers` — task body đã mở session riêng nên an toàn về mặt DB.
-- **Chưa verify được** (thiếu credential, không phải thiếu code): gọi Claude thật (cần `ANTHROPIC_API_KEY`), gửi lên Slack workspace thật (cần Slack app + 3 token).
+- **Slack đã verify thật** (2026-08-08): app cần đúng **một** scope `chat:write`, cộng Socket Mode
+  + app-level token `connections:write`, cộng bật **Interactivity** (quên cái này thì tin nhắn vẫn
+  hiện mà bấm nút im lặng), cộng `/invite @jobpilot` vào channel. Bấm nút trên Slack đổi state
+  trong Postgres và dashboard thấy ngay — `PLAN.md §10` đã được quan sát, không còn là giả định.
+  Lỗi hay gặp: channel **riêng tư** mà bot chưa được mời trả `channel_not_found`, không phải
+  `not_in_channel` — hai lỗi đó phân biệt public/private.
+- **Chưa verify được**: gọi Claude thật — key hợp lệ nhưng **tài khoản hết credit**, nên mọi lệnh
+  tailor/letter/classify qua Claude trả 400 `credit balance is too low`.
 - **Đã verify trên môi trường thật**: `alembic upgrade head` chạy sạch 3 migration lên **PostgreSQL 17 local** (schema `jobpilot`, GIN index, enum `job_status` đầy đủ); toàn bộ 8 trang web chạy trên Postgres thật, không lỗi console; Compile PDF từ CV Studio và tailor→PDF đều qua Docker LaTeX thật.
 - **Lưu ý khi chụp/screenshot UI**: headless Chrome **không có PDF viewer**, nên khung preview PDF sẽ trống (`net::ERR_ABORTED` trên blob URL). Đó là giới hạn của headless chứ không phải bug — chạy `headless=False` để kiểm tra thật.
 - **Gmail OAuth** chưa làm — dùng `method: smtp` (Gmail app password chạy được).

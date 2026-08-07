@@ -327,6 +327,34 @@ theo độ hấp dẫn: phase sau cần dữ liệu do phase trước sinh ra.
 | **24** | **Interview prep + STAR story bank** — bộ chuẩn bị theo từng job, STAR map từ kinh nghiệm **thật** (guardrail như tailor), tích luỹ thành story bank dùng lại. | Ghi event `interview` là có nút sinh bộ chuẩn bị; mọi câu chuyện đều truy được về một mục có thật trong Master CV. |
 | **25** | **Upskill** — gom gap của mọi job đã tailor: yêu cầu nào lặp lại mà mình thiếu → xếp hạng theo tần suất × mức độ gần. | Một danh sách ngắn "học cái này trước" dựa hoàn toàn trên job thật đã gặp, không phải lời khuyên chung chung. |
 
+### Quyết định đang mở — backend cho tailor (để session sau)
+
+Phase 20 đo được ranh giới rất rõ và **không** đóng nó lại trong PR đó:
+
+| | Kết quả đo | Trạng thái |
+|---|---|---|
+| `classify` trên `qwen2.5:7b` | 5/5 nhãn đúng, ~2s/thư | ✅ đã bật local |
+| `tailor` trên `qwen2.5:7b` | 0/4 sau ba vòng vá prompt | ⏸ giữ Claude, **chưa quyết** |
+
+Tailor hỏng ở **điều hướng schema** (nhầm `entry_order`↔`item_order`, và mỗi vòng vá lại
+*hoán vị* chỗ nhầm), **không** phải ở truthfulness — guardrail chống bịa chưa hề bị chạm.
+Nghĩa là bài toán vẫn nằm trong tầm, chỉ là 7B không giữ nổi ánh xạ.
+
+Bốn hướng, chưa chọn:
+
+1. **Model to hơn** — `qwen2.5:14b` (đã pull sẵn, ~9 GB; tràn sang RAM, chậm hơn). Rẻ nhất để
+   thử: đổi một dòng `tailor_model` rồi đo lại. Nếu pass thì kết luận là "7B không đủ",
+   không phải "local không đủ".
+2. **Đơn giản hoá schema cho model yếu** — gộp `entry_order`/`item_order` thành một field
+   `order` duy nhất, để guard suy ra kiểu từ section. **Đụng vào contract của Claude**, nên
+   phải cân nhắc kỹ: đổi schema là đổi thứ đã verify.
+3. **Tách hai lượt gọi** — lượt 1 phân tích requirement (dễ), lượt 2 chỉ xếp thứ tự (dễ), thay
+   vì bắt một lượt trả về cả plan. Đúng khuyến nghị "reason trước, extract sau" cho model nhỏ.
+4. **Chấp nhận hybrid** — classify local, tailor + letter trả tiền. Đang là trạng thái hiện tại.
+
+Đo trước khi chọn: chạy 4 job có sẵn trong DB và đọc tỉ lệ pass guardrail, đúng cách Phase 20
+đã làm — con số đó quyết định, không phải cảm tính.
+
 **Quyết định kiến trúc chốt trước, áp cho cả cụm 18–20:** outcome sống ở tầng
 `Application`, **không** thêm giá trị vào enum `job_status`. `JobStatus` mô tả vòng đời
 *trước khi nộp* của một *job*; một job `SUBMITTED` vẫn là `SUBMITTED` dù sau đó thành offer

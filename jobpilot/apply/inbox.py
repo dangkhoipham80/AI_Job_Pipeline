@@ -37,7 +37,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -312,12 +312,18 @@ def check_verdict(verdict: MailVerdict, mail: MailMessage) -> list[str]:
     classifier whose evidence cannot be checked at a glance, and the whole point
     of showing you the sentence is that you can overrule the label by reading
     one line.
+
+    Evidence is therefore required for exactly the verdicts that get shown —
+    the proposable ones. ``auto_ack`` and ``unrelated`` are recorded and never
+    offered, so demanding a quote for them buys nothing and costs something:
+    a correct "this is just a robot receipt" would be filed as a classifier
+    failure instead of as the cheap, right answer it is.
     """
     problems: list[str] = []
     if verdict.verdict not in VERDICTS:
         problems.append(f"unknown verdict {verdict.verdict!r}")
     quote = verdict.quote.strip()
-    if verdict.verdict != UNRELATED and not quote:
+    if verdict.verdict in PROPOSABLE and not quote:
         problems.append("no supporting quote")
     if quote and _normalize(quote) not in _normalize(readable_body(mail)):
         problems.append("the quote does not appear in the message")
@@ -459,7 +465,47 @@ class FixtureClassifier:
         return found
 
 
+@dataclass
+class OllamaClassifier:
+    """Read one email with a model on your own machine.
+
+    The easiest of the three calls by a distance — six labels and one sentence
+    copied out verbatim — and the one whose guardrail is purely mechanical: the
+    quote either appears in the message or it doesn't. A weaker model shows up
+    as a dropped suggestion, never as a wrong outcome.
+    """
+
+    client: Any = None
+
+    def __post_init__(self) -> None:
+        if self.client is None:
+            from jobpilot.config import get_config
+            from jobpilot.llm.ollama import OllamaClient
+
+            cfg = get_config().llm
+            self.client = OllamaClient(model=cfg.model_for("classify"), host=cfg.host)
+
+    def classify(self, mail: MailMessage, app: Applied) -> MailVerdict:
+        from jobpilot.llm.ollama import OllamaError
+
+        try:
+            return self.client.structured(
+                system=CLASSIFIER_RULES,
+                messages=[{"role": "user", "content": classify_prompt(mail, app)}],
+                schema=MailVerdict,
+            )
+        except OllamaError as exc:
+            from jobpilot.tailor.engine import TailorError
+
+            raise TailorError(str(exc)) from exc
+
+
 def default_classifier() -> Classifier:
+    """The classifier `llm.classify` (or `llm.provider`) asks for."""
+    from jobpilot.config import get_config
+
+    if get_config().llm.for_task("classify") == "ollama":
+        return OllamaClassifier()
     return ClaudeClassifier()
 
 

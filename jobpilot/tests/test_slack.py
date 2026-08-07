@@ -382,7 +382,13 @@ def test_missing_tokens_produce_a_readable_error(monkeypatch):
     from jobpilot.config import Secrets
     from jobpilot.slack.app import SlackConfig, SlackNotConfigured
 
-    monkeypatch.setattr("jobpilot.slack.app.get_secrets", lambda: Secrets(slack_bot_token=""))
+    # All three forced empty. Overriding only one let the other two fall through
+    # to the developer's real .env, so this test passed or failed depending on
+    # whether the machine running it happened to have Slack configured.
+    monkeypatch.setattr(
+        "jobpilot.slack.app.get_secrets",
+        lambda: Secrets(slack_bot_token="", slack_app_token="", slack_channel_id=""),
+    )
     with pytest.raises(SlackNotConfigured) as exc:
         SlackConfig.from_secrets()
     for name in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CHANNEL_ID"):
