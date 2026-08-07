@@ -14,6 +14,7 @@ from jobpilot.config import ApplyCfg, EmailCfg
 from jobpilot.cv import store as cv_store
 from jobpilot.cv.compile import scope_slug
 from jobpilot.store.models import Application, Job, JobStatus, Run
+from jobpilot.tailor.build import BuildError, BuildResult
 from jobpilot.tailor.guard import GuardrailViolation
 from jobpilot.tailor.schema import Requirement, TailorPlan
 
@@ -34,6 +35,18 @@ def db(session_factory, tmp_path, monkeypatch):
     monkeypatch.setattr(
         "jobpilot.apply.dispatcher.build_dir", lambda scope: tmp_path / scope_slug(scope)
     )
+
+    # Stub the LaTeX build. Left real, every test that applies with a letter
+    # engine would start a Docker container: slow, and green only on machines
+    # that happen to have Docker. The letter PDF gets its own tests, which build
+    # for real; here it just needs to exist.
+    def fake_compile(_letter, _doc, _job, dest, today=None):
+        dest.mkdir(parents=True, exist_ok=True)
+        pdf = dest / "cover_letter.pdf"
+        pdf.write_bytes(b"%PDF-1.5\n<</Type /Page>>\n%%EOF")
+        return BuildResult(pdf=pdf, pages=1)
+
+    monkeypatch.setattr("jobpilot.apply.dispatcher.compile_letter", fake_compile)
     with session_factory() as s:
         cv_store.ensure_master(s)
         yield s
@@ -367,6 +380,111 @@ def test_cover_letter_is_written_next_to_the_cv(db, tmp_path):
     dispatcher.apply_job(db, "itviec:1", FixtureLetterEngine(letter=LETTER))
     app = db.query(Application).one()
     assert Path(app.cover_letter_path).read_text(encoding="utf-8").startswith("Dear Hiring Team")
+
+
+def test_the_letter_pdf_is_built_and_recorded(db, tmp_path):
+    _job(db, apply_channel="portal", apply_target="https://acme.com/apply")
+    _cv(tmp_path, "itviec:1")
+
+    dispatcher.apply_job(db, "itviec:1", FixtureLetterEngine(letter=LETTER))
+    app = db.query(Application).one()
+    assert Path(app.cover_letter_pdf_path).name == "cover_letter.pdf"
+    assert Path(app.cover_letter_pdf_path).is_file()
+    assert app.meta["letter"]["pdf_error"] is None
+
+
+def test_a_letter_pdf_that_will_not_build_still_applies(db, tmp_path, monkeypatch):
+    """Docker being down is not a reason to sit on an application whose CV
+    already built. The letter still goes out as text; the row says why there is
+    no PDF instead of leaving a NULL nobody can explain."""
+
+    def boom(*_a, **_k):
+        raise BuildError("! Undefined control sequence")
+
+    monkeypatch.setattr("jobpilot.apply.dispatcher.compile_letter", boom)
+    _job(db, apply_channel="portal", apply_target="https://acme.com/apply")
+    _cv(tmp_path, "itviec:1")
+
+    outcome = dispatcher.apply_job(db, "itviec:1", FixtureLetterEngine(letter=LETTER))
+    assert outcome.result == "awaiting_user"
+    app = db.query(Application).one()
+    assert app.cover_letter_pdf_path is None
+    assert app.cover_letter_path is not None  # the letter itself survived
+    assert "Undefined control sequence" in app.meta["letter"]["pdf_error"]
+
+
+def test_a_letter_pdf_failing_in_any_way_still_applies(db, tmp_path, monkeypatch):
+    """Not just BuildError. The same call copies assets (OSError on a full disk)
+    and renders a template (RenderError); if either escapes, the job sits in
+    SUBMITTING forever with no error_msg — the exact outcome the fallback is
+    there to prevent."""
+    _job(db, apply_channel="portal", apply_target="https://acme.com/apply")
+    _cv(tmp_path, "itviec:1")
+
+    def boom(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("jobpilot.apply.dispatcher.compile_letter", boom)
+    outcome = dispatcher.apply_job(db, "itviec:1", FixtureLetterEngine(letter=LETTER))
+
+    assert outcome.result == "awaiting_user"
+    assert db.get(Job, "itviec:1").status == JobStatus.SUBMITTING
+    app = db.query(Application).one()
+    assert app.cover_letter_pdf_path is None
+    # The row names the failure rather than leaving an unexplained NULL.
+    assert "OSError" in app.meta["letter"]["pdf_error"]
+    assert "No space left" in app.meta["letter"]["pdf_error"]
+
+
+def test_the_letter_pdf_is_attached_to_the_email(db, tmp_path, monkeypatch):
+    sent = {}
+    monkeypatch.setattr(
+        "jobpilot.apply.dispatcher.get_config",
+        lambda: type("C", (), {"apply": _cfg(dry_run=False)})(),
+    )
+    monkeypatch.setattr(
+        "jobpilot.apply.dispatcher.send_email",
+        lambda email, secrets: sent.update(names=[p.name for p in email.attachments]) or "sent",
+    )
+    _job(db)
+    _cv(tmp_path, "itviec:1")
+
+    dispatcher.apply_job(db, "itviec:1", FixtureLetterEngine(letter=LETTER))
+    assert sent["names"] == ["cv.pdf", "cover_letter.pdf"]
+
+
+def test_no_letter_pdf_means_no_broken_attachment(db, tmp_path, monkeypatch):
+    """A CV must never go out with a missing or stale file stapled to it."""
+
+    def boom(*_a, **_k):
+        raise BuildError("docker not found on PATH")
+
+    sent = {}
+    monkeypatch.setattr("jobpilot.apply.dispatcher.compile_letter", boom)
+    monkeypatch.setattr(
+        "jobpilot.apply.dispatcher.get_config",
+        lambda: type("C", (), {"apply": _cfg(dry_run=False)})(),
+    )
+    monkeypatch.setattr(
+        "jobpilot.apply.dispatcher.send_email",
+        lambda email, secrets: sent.update(names=[p.name for p in email.attachments]) or "sent",
+    )
+    _job(db)
+    _cv(tmp_path, "itviec:1")
+
+    dispatcher.apply_job(db, "itviec:1", FixtureLetterEngine(letter=LETTER))
+    assert sent["names"] == ["cv.pdf"]
+
+
+def test_applying_without_a_letter_engine_records_no_letter_at_all(db, tmp_path):
+    """No letter and a letter whose PDF failed are different states."""
+    _job(db, apply_channel="portal", apply_target="https://acme.com/apply")
+    _cv(tmp_path, "itviec:1")
+
+    dispatcher.apply_job(db, "itviec:1")
+    app = db.query(Application).one()
+    assert app.cover_letter_path is None and app.cover_letter_pdf_path is None
+    assert "letter" not in app.meta
 
 
 def test_a_dishonest_cover_letter_stops_the_application(db, tmp_path):

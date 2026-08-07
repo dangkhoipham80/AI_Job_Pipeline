@@ -216,8 +216,9 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 14 | Giải thích `match_score` + cờ chất lượng tin (`no_jd`/`thin_jd`/`stale`/`undated`) | `crawler/quality.py` |
 | 15 | Nhắc follow-up sau khi nộp — hiện trên board, **không tự gửi** | `apply/followup.py` |
 | 16 | Diff giữa 2 version CV bất kỳ trong CV Studio (dùng lại diff của tailor) | `tailor/diff.py`, `api/routes/cv.py` |
+| 17 | Cover letter ra `.tex` → PDF, đính kèm email; text vẫn là bản chính | `apply/letter_pdf.py`, migration 0006 |
 
-511 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+531 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
@@ -248,7 +249,7 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 - **Chọn fetcher theo thứ site phục vụ, không theo thói quen**: `HttpFetcher` cho document (RSS/JSON/HTML server-render), `PlaywrightFetcher` cho app (ITviec/VNW). Đừng truyền 1 fetcher dùng chung cho mọi scraper trong production — `build_scrapers(fetcher=...)` chỉ dành cho test, vì browser sẽ bọc JSON thành `<pre>` và feed parser vỡ.
 - **`infer_level` vẫn quét cả JD**, nên một JD nhắc "we hire senior engineers" có thể kéo job mid thành senior. Đã sửa phần substring (Phase 11) nhưng phạm vi quét thì chưa thu hẹp — thu về title-only sẽ mất các job VN ghi "thực tập sinh" trong body.
 - **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco). Diff giữa 2 version bất kỳ **đã có** (Phase 16) — dùng chung `tailor/diff.py` với CV Review, chỉ khác bộ chữ (`VERSION_LABELS` vs `TAILOR_LABELS`). Thêm loại so sánh mới thì thêm một `DiffLabels`, **đừng fork hàm diff**: hai bộ luật song song sẽ lệch nhau lúc nào không biết.
-- **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.
+- **Cover letter đã ra PDF** (Phase 17): template riêng `cv/templates/awesome_cv/cover_letter.tex.j2` dùng chung `_preamble.tex.j2` với CV. **`awesome-cv.cls` bản trim trong repo KHÔNG có macro letter nào** (`\cvletter`, `\recipient`… đều không tồn tại — grep class file trước khi tin spec). Text vẫn là bản chính (email mang text ở body, PDF là đính kèm); build hỏng thì **đơn vẫn gửi**, lý do vào `meta.letter.pdf_error`. Ngắt đoạn trong template LaTeX phải viết `\par` tường minh — Jinja `trim_blocks` ăn dòng trống và biến 2 đoạn thành 1 dòng dính liền, compile vẫn sạch.
 - **Cần `pip install -e '.[cv]'`** cho `pypdf`, nếu không page count trả `None` (badge "1 trang" biến mất, không còn cảnh báo CV tràn 2 trang). Build PDF vẫn chạy bình thường — chỉ mất phần đếm trang.
 - **Queue vẫn 1 worker**: tailor xếp sau một crawl đang chạy sẽ đứng `queued` vài phút. Đúng nghĩa "queued", nhưng nếu thấy vướng thì nâng `max_workers` — task body đã mở session riêng nên an toàn về mặt DB.
 - **Chưa verify được** (thiếu credential, không phải thiếu code): gọi Claude thật (cần `ANTHROPIC_API_KEY`), gửi lên Slack workspace thật (cần Slack app + 3 token).

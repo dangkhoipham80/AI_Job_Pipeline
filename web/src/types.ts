@@ -288,6 +288,14 @@ export interface HandoffSummary {
   note: string;
 }
 
+/** What the cover letter step produced (jobpilot/apply/dispatcher.py). */
+export interface LetterSummary {
+  txt: string | null;
+  pdf: string | null;
+  /** Why there is no PDF. Null when the build succeeded. */
+  pdf_error: string | null;
+}
+
 export interface Application {
   id: number;
   job_id: string;
@@ -300,8 +308,13 @@ export interface Application {
   submitted_at: string | null;
   created_at: string | null;
   cv_pdf_path: string | null;
+  /** The letter as sent. */
+  cover_letter_path: string | null;
+  /** The letter as filed. Null with a non-null `cover_letter_path` means the
+   *  LaTeX build failed — `meta.letter.pdf_error` says why. */
+  cover_letter_pdf_path: string | null;
   apply_target: string | null;
-  meta: { email?: EmailSummary; handoff?: HandoffSummary };
+  meta: { email?: EmailSummary; handoff?: HandoffSummary; letter?: LetterSummary };
   /** Where this sits in the follow-up cadence: first_nudge | second_nudge | done. */
   followup_stage: string | null;
   next_followup_at: string | null;

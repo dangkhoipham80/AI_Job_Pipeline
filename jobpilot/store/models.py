@@ -103,7 +103,13 @@ class Application(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[str] = mapped_column(ForeignKey(_JOBS_ID, ondelete="CASCADE"), index=True)
     cv_pdf_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The letter as text (what the email body carried) and as a built PDF. Two
+    # columns because they fail apart: NULL pdf with a non-NULL txt means the
+    # LaTeX build didn't run or didn't work, and `meta["letter"]["pdf_error"]`
+    # says which. Collapsing them would make "no PDF" indistinguishable from
+    # "no letter".
     cover_letter_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_letter_pdf_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     channel: Mapped[str | None] = mapped_column(String(32), nullable=True)  # email|portal|external
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # success | failed | dry_run | awaiting_user

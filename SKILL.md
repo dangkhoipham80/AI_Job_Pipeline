@@ -77,12 +77,22 @@ Chỉ sửa các file `resume/*.tex`, giữ nguyên cú pháp Awesome-CV. Macro 
 **Rule độ dài**: giữ CV **1 trang**. Nếu tràn → rút phần ít liên quan (không xoá facts quan trọng).
 
 ### Bước 4 — Cover letter
-Sinh `cover_letter.tex` (dùng class Awesome-CV `\cvletter` hoặc template riêng):
+Sinh `cover_letter.tex` → PDF (đã làm ở Phase 17):
 - Mở đầu: vị trí ứng tuyển + công ty (`job.title`, `job.company`).
 - Thân: 2–3 điểm mạnh **có thật** khớp must-have, dẫn chứng từ experience/project.
 - Nếu có `MISSING` quan trọng: 1 câu thể hiện tinh thần học hỏi (trung thực, không khẳng định đã biết).
 - Kết: call-to-action lịch sự + thông tin liên hệ.
 - Giọng: chuyên nghiệp, ngắn (<= 300 từ), không sáo rỗng.
+
+> **Không dùng `\cvletter`** — bản `awesome-cv.cls` trong repo là bản đã trim, không
+> có macro letter nào (`\recipient`, `\letteropening`, env `cvletter` đều không tồn
+> tại). Template riêng ở `cv/templates/awesome_cv/cover_letter.tex.j2`, dựng bằng
+> đúng những macro class thật sự có (`\makecvheader`, `\cvsection`, `cvparagraph`),
+> và dùng chung `_preamble.tex.j2` với CV nên đổi theme là đổi cả hai.
+>
+> **Text vẫn là bản chính**: email mang text ở body (PDF không làm body được), PDF là
+> file đính kèm. Build PDF hỏng thì đơn **vẫn gửi** — lý do ghi vào
+> `meta.letter.pdf_error`, không nuốt im.
 
 ### Bước 5 — Build & verify
 - Copy `resume/` + assets vào `out/<job_id>/`, apply edits.
