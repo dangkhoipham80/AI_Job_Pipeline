@@ -7,6 +7,9 @@ import type { CvDiff, DiffStatus, TailorChange } from "@/types";
  * The tailor mostly *moves* content, so a line diff would mark every bullet as
  * changed. This renders the structural diff from jobpilot/tailor/diff.py: what
  * moved, what was trimmed, what was rewritten — the questions a reviewer has.
+ *
+ * Shared with CV Studio's version compare, which passes no `changes` (there is
+ * no tailor plan behind a hand edit) and its own `title`.
  */
 
 const STATUS: Record<DiffStatus, { label: string; icon: typeof PenLine; className: string }> = {
@@ -17,17 +20,28 @@ const STATUS: Record<DiffStatus, { label: string; icon: typeof PenLine; classNam
   unchanged: { label: "Unchanged", icon: Eye, className: "text-ink-muted border-border" },
 };
 
-export function DiffPanel({ diff, changes }: { diff: CvDiff; changes: TailorChange[] }) {
+export function DiffPanel({
+  diff,
+  changes = [],
+  title = "What changed",
+  action,
+}: {
+  diff: CvDiff;
+  changes?: TailorChange[];
+  title?: string;
+  action?: React.ReactNode;
+}) {
   const touched = diff.sections.filter((s) => s.status !== "unchanged");
   const untouched = diff.sections.filter((s) => s.status === "unchanged");
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>What changed</CardTitle>
-        <span className="font-mono text-[11px] text-ink-muted">
+      <CardHeader className="gap-3">
+        <CardTitle>{title}</CardTitle>
+        <span className="ml-auto font-mono text-[11px] text-ink-muted">
           {touched.length} of {diff.sections.length} sections
         </span>
+        {action}
       </CardHeader>
       <CardBody className="flex flex-col gap-4 pt-3">
         {changes.length > 0 && (

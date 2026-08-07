@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Plus, Save } from "lucide-react";
+import { Plus, Save, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { Button, Card, CardBody, Select, Skeleton } from "@/components/ui";
@@ -10,7 +10,8 @@ import { HeaderEditor } from "@/components/cv/HeaderEditor";
 import { PdfPreview } from "@/components/cv/PdfPreview";
 import { SectionEditor } from "@/components/cv/SectionEditor";
 import { VersionHistory } from "@/components/cv/VersionHistory";
-import type { AtsReport, CvDocument, CvSection, CvSectionType } from "@/types";
+import { DiffPanel } from "@/components/review/DiffPanel";
+import type { AtsReport, CvDocument, CvSection, CvSectionType, CvVersionDiff } from "@/types";
 
 const NEW_SECTION: Record<CvSectionType, () => CvSection> = {
   paragraph: () => ({ type: "paragraph", key: "summary", title: "Summary", enabled: true, text: "", small: true }),
@@ -50,6 +51,17 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
   }, [data]);
 
   const versions = useApi(() => api.cvVersions(scope), [scope, savedVersion, wsVersion]);
+
+  // Which pair the History card asked to compare. Versions are immutable, so
+  // this is deliberately not refetched on save — the diff on screen stays true.
+  const [compare, setCompare] = useState<{ base: number; target: number } | null>(null);
+  const diff = useApi(
+    () => (compare ? api.cvDiff(scope, compare.base, compare.target) : Promise.resolve(null)),
+    [scope, compare?.base, compare?.target],
+  );
+  // A compare pinned to versions of the CV you just navigated away from would
+  // be captioned with the new scope's name.
+  useEffect(() => setCompare(null), [scope]);
 
   const dirty = useMemo(
     () => !!draft && !!data && JSON.stringify(draft) !== JSON.stringify(data.document),
@@ -136,6 +148,14 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         {/* Editor */}
         <div className="flex min-w-0 flex-col gap-4">
+          {compare && (
+            <VersionCompare
+              base={compare.base}
+              target={compare.target}
+              state={diff}
+              onClose={() => setCompare(null)}
+            />
+          )}
           <MarkupLegend />
           <HeaderEditor
             header={draft.header}
@@ -181,9 +201,67 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
             loading={versions.loading}
             busy={saving}
             onRollback={rollback}
+            onCompare={(base, target) => setCompare({ base, target })}
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Version compare. Sits in the editor column rather than the right rail because
+ * reading a diff is a full-width job, and while you're reading one you aren't
+ * editing. The heading uses the versions the *server* echoed back, not the ones
+ * we asked for, so a mislabelled panel can't survive a backend disagreement.
+ */
+function VersionCompare({
+  base,
+  target,
+  state,
+  onClose,
+}: {
+  base: number;
+  target: number;
+  state: { data: CvVersionDiff | null; loading: boolean; error: string | null };
+  onClose: () => void;
+}) {
+  const close = (
+    <Button size="sm" variant="ghost" className="h-7 shrink-0 px-2" onClick={onClose}>
+      <X size={13} /> Close
+    </Button>
+  );
+
+  if (state.error) {
+    return (
+      <Card>
+        <CardBody className="flex items-center justify-between gap-3 text-sm text-critical">
+          {state.error}
+          {close}
+        </CardBody>
+      </Card>
+    );
+  }
+  if (!state.data) {
+    return <Skeleton className="h-40" />;
+  }
+
+  const { diff } = state.data;
+  const same = state.data.base === state.data.target;
+  return (
+    <div className="flex flex-col gap-2">
+      <DiffPanel
+        diff={diff}
+        title={`v${state.data.base} → v${state.data.target}`}
+        action={close}
+      />
+      {!diff.changed && (
+        <p className="px-1 text-xs text-ink-muted">
+          {same
+            ? "Same version on both sides — nothing to compare."
+            : `v${base} and v${target} have identical structure and text.`}
+        </p>
+      )}
     </div>
   );
 }

@@ -215,8 +215,9 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 13 | Máy đọc được PDF không (text layer, **không chấm điểm**) | `cv/ats.py` |
 | 14 | Giải thích `match_score` + cờ chất lượng tin (`no_jd`/`thin_jd`/`stale`/`undated`) | `crawler/quality.py` |
 | 15 | Nhắc follow-up sau khi nộp — hiện trên board, **không tự gửi** | `apply/followup.py` |
+| 16 | Diff giữa 2 version CV bất kỳ trong CV Studio (dùng lại diff của tailor) | `tailor/diff.py`, `api/routes/cv.py` |
 
-505 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+511 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
@@ -246,7 +247,7 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 - **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp). Từ Phase 11 nó **raise theo status code** — trang chặn (403/429) là một *trang* hợp lệ với parser, nên nếu không chặn ở tầng fetch thì nó lặng lẽ thành "0 job".
 - **Chọn fetcher theo thứ site phục vụ, không theo thói quen**: `HttpFetcher` cho document (RSS/JSON/HTML server-render), `PlaywrightFetcher` cho app (ITviec/VNW). Đừng truyền 1 fetcher dùng chung cho mọi scraper trong production — `build_scrapers(fetcher=...)` chỉ dành cho test, vì browser sẽ bọc JSON thành `<pre>` và feed parser vỡ.
 - **`infer_level` vẫn quét cả JD**, nên một JD nhắc "we hire senior engineers" có thể kéo job mid thành senior. Đã sửa phần substring (Phase 11) nhưng phạm vi quét thì chưa thu hẹp — thu về title-only sẽ mất các job VN ghi "thực tập sinh" trong body.
-- **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco), diff giữa 2 version bất kỳ. `tex_snapshot` đã lưu mỗi version nên diff làm sau rất nhẹ.
+- **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco). Diff giữa 2 version bất kỳ **đã có** (Phase 16) — dùng chung `tailor/diff.py` với CV Review, chỉ khác bộ chữ (`VERSION_LABELS` vs `TAILOR_LABELS`). Thêm loại so sánh mới thì thêm một `DiffLabels`, **đừng fork hàm diff**: hai bộ luật song song sẽ lệch nhau lúc nào không biết.
 - **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.
 - **Cần `pip install -e '.[cv]'`** cho `pypdf`, nếu không page count trả `None` (badge "1 trang" biến mất, không còn cảnh báo CV tràn 2 trang). Build PDF vẫn chạy bình thường — chỉ mất phần đếm trang.
 - **Queue vẫn 1 worker**: tailor xếp sau một crawl đang chạy sẽ đứng `queued` vài phút. Đúng nghĩa "queued", nhưng nếu thấy vướng thì nâng `max_workers` — task body đã mở session riêng nên an toàn về mặt DB.

@@ -159,6 +159,20 @@ export interface CvVersionDetail extends CvVersion {
   tex: string;
 }
 
+/**
+ * GET /cv/{scope}/diff — the same structural diff the review page renders, but
+ * worded for a version comparison (jobpilot/tailor/diff.py VERSION_LABELS).
+ * `base`/`target` echo the server's view, so label the panel from these.
+ */
+export interface CvVersionDiff {
+  scope: string;
+  base: number;
+  target: number;
+  base_author: "user" | "agent";
+  target_author: "user" | "agent";
+  diff: CvDiff;
+}
+
 /** One thing a parser could not recover from the PDF, plus how to fix it. */
 export interface AtsFinding {
   level: "error" | "warning";
@@ -231,6 +245,8 @@ export interface CvDiff {
   order_before: string[];
   order_after: string[];
   sections: SectionDiff[];
+  /** Server-computed (CvDiff.changed) — don't re-derive it here and drift. */
+  changed: boolean;
 }
 
 export interface ReviewData {
