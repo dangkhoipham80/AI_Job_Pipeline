@@ -6,7 +6,7 @@ import { useApi } from "@/hooks/useApi";
 import type { JobStatus } from "@/types";
 import { relativeTime } from "@/lib/format";
 import { StatusPill } from "@/components/StatusPill";
-import { MatchMeter } from "@/components/MatchMeter";
+import { MatchMeter, QualityFlags } from "@/components/MatchMeter";
 import { FreshBeacon } from "@/components/FreshBeacon";
 import { sourceColor } from "@/components/charts/palette";
 import { Badge, Button, Card, CardBody, Skeleton } from "@/components/ui";
@@ -85,7 +85,8 @@ export function JobDetail({ version }: { version: number }) {
                 </div>
 
                 <div className="flex shrink-0 flex-col items-end gap-3">
-                  <MatchMeter score={job.match_score} />
+                  <MatchMeter score={job.match_score} quality={job.quality} />
+                  <QualityFlags quality={job.quality} />
                   <div className="flex items-center gap-1.5">
                     {EARLY.has(job.status) && job.status !== "SHORTLISTED" && (
                       <Button size="sm" onClick={() => act("shortlist")} disabled={pending}>

@@ -40,7 +40,12 @@ class AppCfg(BaseModel):
 
 class CrawlCfg(BaseModel):
     jobs_per_site: int = 10
+    # Listing pages to walk per site before giving up on reaching jobs_per_site.
+    # A ceiling, not a target: a board with 50 cards a page never leaves page 1.
+    max_pages: int = 5
     fresh_hours: int = 48
+    # A posting older than this is flagged (never hidden) as possibly filled.
+    stale_days: int = 45
     rate_limit_seconds: tuple[float, float] = (2.0, 5.0)
     match_score_min: float = 0.30
     stacks: list[str] = Field(default_factory=list)
@@ -51,6 +56,21 @@ class SourceCfg(BaseModel):
     key: str
     tier: int = 1
     enabled: bool = False
+
+
+class AtsCfg(BaseModel):
+    """Company boards to read per ATS platform (PLAN §5.1.1 tier 3).
+
+    A token is the company's slug in its careers-page URL — the ``gitlab`` in
+    ``job-boards.greenhouse.io/gitlab``. Adding a company is one word here;
+    there is no per-company code.
+    """
+
+    greenhouse: list[str] = Field(default_factory=list)
+    lever: list[str] = Field(default_factory=list)
+
+    def boards_for(self, key: str) -> list[str]:
+        return list(getattr(self, key, []) or [])
 
 
 class EmailCfg(BaseModel):
@@ -95,6 +115,7 @@ class Config(BaseModel):
     app: AppCfg = Field(default_factory=AppCfg)
     crawl: CrawlCfg = Field(default_factory=CrawlCfg)
     sources: list[SourceCfg] = Field(default_factory=list)
+    ats: AtsCfg = Field(default_factory=AtsCfg)
     apply: ApplyCfg = Field(default_factory=ApplyCfg)
     cv: CvCfg = Field(default_factory=CvCfg)
 
@@ -147,6 +168,42 @@ def deep_merge(base: dict, overlay: dict) -> dict:
     return out
 
 
+def merge_sources(base: list, overlay: list) -> list:
+    """Merge the source list *by key* instead of replacing it wholesale.
+
+    ``deep_merge`` overwrites lists, which is right for ``stacks`` but wrong
+    here: the overlay written by the Settings page holds one entry per source
+    that existed *when it was saved*, so a plain overwrite makes every source
+    added to ``config.yaml`` since then vanish. Not merely default-off —
+    absent, and therefore impossible to switch on in the Settings page that
+    caused it. Adding the tier-2 feeds hit exactly that.
+
+    So ``config.yaml`` owns the catalogue and its order; the overlay only
+    carries your preferences for the sources it names. A key the overlay
+    invents is still kept, so a hand-added source is not silently dropped.
+    """
+    merged = {s["key"]: dict(s) for s in base if isinstance(s, dict) and s.get("key")}
+    order = list(merged)
+    for src in overlay or []:
+        if not isinstance(src, dict) or not src.get("key"):
+            continue
+        key = src["key"]
+        if key in merged:
+            merged[key].update(src)
+        else:
+            merged[key] = dict(src)
+            order.append(key)
+    return [merged[k] for k in order]
+
+
+def resolve_config(base: dict, overlay: dict) -> dict:
+    """``config.yaml`` + ``config.local.yaml`` → the settings the app runs on."""
+    data = deep_merge(base, overlay)
+    if isinstance(base.get("sources"), list):
+        data["sources"] = merge_sources(base["sources"], overlay.get("sources") or [])
+    return data
+
+
 def _read_yaml(path: Path) -> dict:
     if not path.is_file():
         return {}
@@ -156,8 +213,7 @@ def _read_yaml(path: Path) -> dict:
 @lru_cache
 def get_config(path: Path | None = None) -> Config:
     p = path or CONFIG_PATH
-    data = deep_merge(_read_yaml(p), _read_yaml(LOCAL_CONFIG_PATH))
-    return Config.model_validate(data)
+    return Config.model_validate(resolve_config(_read_yaml(p), _read_yaml(LOCAL_CONFIG_PATH)))
 
 
 def save_local_config(patch: dict) -> Config:
@@ -167,7 +223,9 @@ def save_local_config(patch: dict) -> Config:
     leaving the app unable to load its own config on next start.
     """
     merged_overlay = deep_merge(_read_yaml(LOCAL_CONFIG_PATH), patch)
-    Config.model_validate(deep_merge(_read_yaml(CONFIG_PATH), merged_overlay))
+    # Validate exactly what get_config() will build, or a save can pass here and
+    # then fail on the next start.
+    Config.model_validate(resolve_config(_read_yaml(CONFIG_PATH), merged_overlay))
 
     header = (
         "# Written by the JobPilot Settings page — merged on top of config.yaml.\n"

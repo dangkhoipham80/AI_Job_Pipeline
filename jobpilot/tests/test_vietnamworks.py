@@ -195,6 +195,16 @@ def test_search_url_encodes_the_query():
     assert "q=java+spring" in VietnamWorksScraper().search_url("java spring")
 
 
+def test_paging_is_how_this_site_gets_past_lazy_loading():
+    """One fetch renders ~9-20 cards and leaves the rest as skeletons awaiting a
+    scroll, so `jobs_per_site` above that used to come back short. Asking for the
+    next page keeps PlaywrightFetcher a plain (url) -> html function, which
+    scrolling inside it would not."""
+    scraper = VietnamWorksScraper()
+    assert scraper.search_url("java", 2).endswith("&page=2")
+    assert scraper.search_url("java", 1) == scraper.search_url("java")
+
+
 def test_title_survives_being_wrapped_in_an_element():
     """Reading only the anchor's bare text nodes returns nothing once the title
     is wrapped (`<strong>…</strong>`), and the old fallback then handed back the

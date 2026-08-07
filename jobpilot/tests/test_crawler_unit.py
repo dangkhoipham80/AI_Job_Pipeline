@@ -60,9 +60,21 @@ def test_parse_posted_at_absolute_daymonth():
     assert dt == datetime(2026, 7, 8, tzinfo=VN_TZ)
 
 
+def test_parse_posted_at_rfc822_from_rss():
+    """Every RSS feed dates its items RFC-822, which ISO parsing rejects. Left
+    unhandled, a feed source lands with posted_at=None — never flagged fresh,
+    missing from the by-day chart — while looking perfectly healthy."""
+    dt = parse_posted_at("Wed, 22 Jul 2026 07:00:51 +0000", NOW)
+    assert dt is not None
+    assert (dt.year, dt.month, dt.day, dt.hour) == (2026, 7, 22, 7)
+    assert dt.utcoffset() == timedelta(0)
+
+
 def test_parse_posted_at_unparseable_returns_none():
     assert parse_posted_at("", NOW) is None
     assert parse_posted_at("recently", NOW) is None
+    # Still None, not a date invented out of a weekday name.
+    assert parse_posted_at("Wednesday", NOW) is None
 
 
 # -- level + matching ------------------------------------------------------- #
@@ -71,6 +83,30 @@ def test_infer_level_priority():
     assert infer_level("Backend Intern") == "intern"
     assert infer_level("Senior Backend Engineer") == "senior"
     assert infer_level("Backend Engineer") is None
+
+
+def test_infer_level_matches_words_not_substrings():
+    """ "intern" hides inside "internal"/"international" and "lead" inside
+    "leadership" — words nearly every JD uses. Substring matching filed a Stripe
+    senior role as an internship, and that wrong level flows into the dashboard
+    chart and the level filter looking perfectly plausible."""
+    assert infer_level("Backend Engineer", "You work with internal teams") is None
+    assert infer_level("Backend Engineer", "our international offices") is None
+    assert infer_level("Backend Engineer", "strong leadership skills") is None
+    # The real words still match, in the title or the body.
+    assert infer_level("Backend Engineer", "This is an internship") == "intern"
+    assert infer_level("Tech Lead") == "senior"
+    assert infer_level("Thực tập sinh Java") == "intern"
+
+
+def test_bare_intern_counts_in_the_title_but_not_in_prose():
+    """ "intern" is an ordinary word in a JD — English "internally", German
+    "beraten wir uns intern" (seen live on Arbeitnow) — but never an accident in
+    a job title. "Internship" is unambiguous anywhere."""
+    assert infer_level("Backend Intern") == "intern"
+    assert infer_level("Software Engineer", "beraten wir uns intern") is None
+    assert infer_level("Software Engineer", "we discuss it intern") is None
+    assert infer_level("Software Engineer", "a paid internship") == "intern"
 
 
 def test_stack_match_score_fraction():

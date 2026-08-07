@@ -76,9 +76,10 @@ def _salary(root: Tag) -> str | None:
 class ITViecScraper(BaseScraper):
     source = "itviec"
 
-    def search_url(self, query: str) -> str:
+    def search_url(self, query: str, page: int = 1) -> str:
         q = quote_plus(query or "java spring boot")
-        return f"{BASE_URL}/it-jobs?query={q}"
+        url = f"{BASE_URL}/it-jobs?query={q}"
+        return url if page <= 1 else f"{url}&page={page}"
 
     def _native_id(self, url: str) -> str:
         # ITviec job URLs look like /it-jobs/<slug>-<id>; the trailing slug is stable.

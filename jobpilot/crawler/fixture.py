@@ -45,7 +45,8 @@ class FixtureScraper(BaseScraper):
         if self.fetcher is None:
             self.fetcher = self._pages.__getitem__  # KeyError → skipped by crawl loop
 
-    def search_url(self, query: str) -> str:
+    def search_url(self, query: str, page: int = 1) -> str:
+        """One page only — page 2 repeats page 1's URL, which stops the loop."""
         return SEARCH_URL
 
     def parse_search(self, html: str) -> list[SearchHit]:

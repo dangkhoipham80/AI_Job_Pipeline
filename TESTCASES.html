@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobPilot — Preflight Checklist (Phase 0 → 15)</title>
+<style>
+:root{
+  --paper:#EDEFF2; --paper2:#F6F7F9; --card:#FFFFFF;
+  --ink:#12161C; --ink60:#59616E; --ink30:#A8AFBA; --ink12:#D7DBE1;
+  --magenta:#C21E63; --cyan:#0E6E8C; --sand:#E4DCC9;
+  --amber:#B26B00; --green:#1F7A5A;
+  --display:"Arial Narrow","Helvetica Neue",Arial,sans-serif;
+  --body:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font:15px/1.6 var(--body);
+  background-image:linear-gradient(var(--ink12) 1px,transparent 1px),linear-gradient(90deg,var(--ink12) 1px,transparent 1px);
+  background-size:88px 88px,88px 88px; background-position:-1px -1px;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 96px}
+
+/* ---------- flight-plan header ---------- */
+.strip{background:var(--ink);color:var(--paper);margin:0 -24px 0;padding:34px 24px 26px;position:relative}
+.strip::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--magenta)}
+.strip .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--magenta)}
+.strip h1{font-family:var(--display);font-size:clamp(38px,7vw,72px);line-height:.92;letter-spacing:.01em;
+  text-transform:uppercase;margin:14px 0 10px;font-weight:700}
+.strip h1 em{font-style:normal;color:var(--ink30)}
+.strip p{max-width:60ch;color:#C4CAD3;margin:0;font-size:14px}
+.meta{display:flex;flex-wrap:wrap;gap:0 28px;margin-top:20px;font:12px/1.5 var(--mono);color:#8A94A2}
+.meta b{color:var(--paper);font-weight:600}
+
+/* ---------- gauge ---------- */
+.gauge-bar{position:sticky;top:0;z-index:20;background:var(--paper2);border-bottom:1px solid var(--ink12);
+  margin:0 -24px 34px;padding:10px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.gauge{flex:1 1 220px;min-width:180px;height:14px;display:flex;border:1px solid var(--ink);background:var(--card);overflow:hidden}
+.gauge i{display:block;height:100%}
+.gauge .g-pass{background:var(--green)} .gauge .g-fail{background:var(--magenta)} .gauge .g-todo{background:transparent}
+.counts{font:12px/1 var(--mono);letter-spacing:.04em;color:var(--ink60);white-space:nowrap}
+.counts b{color:var(--ink)}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+button{font:600 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+  background:var(--card);color:var(--ink);border:1px solid var(--ink);padding:7px 11px;border-radius:0}
+button:hover{background:var(--ink);color:var(--paper)}
+button:focus-visible{outline:2px solid var(--magenta);outline-offset:2px}
+button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+
+/* ---------- sections ---------- */
+section{margin:0 0 52px}
+h2{font-family:var(--display);text-transform:uppercase;font-size:26px;letter-spacing:.03em;margin:0;font-weight:700}
+.sec-head{display:flex;align-items:baseline;gap:14px;border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:6px}
+.sec-num{font:700 12px/1 var(--mono);letter-spacing:.16em;color:var(--magenta);white-space:nowrap}
+.sec-note{font-size:13px;color:var(--ink60);margin:10px 0 18px;max-width:78ch}
+.sec-note code{font:12px/1.4 var(--mono);background:var(--card);border:1px solid var(--ink12);padding:1px 5px}
+
+/* ---------- setup ---------- */
+.step{display:grid;grid-template-columns:44px 1fr;gap:16px;margin-bottom:22px;align-items:start}
+.step .n{font-family:var(--display);font-size:32px;line-height:1;color:var(--magenta);font-weight:700;
+  border-top:2px solid var(--magenta);padding-top:6px}
+.step h3{margin:0 0 6px;font-size:15px;font-weight:600}
+.step p{margin:0 0 8px;color:var(--ink60);font-size:14px}
+pre{font:12.5px/1.65 var(--mono);background:var(--ink);color:#DDE3EA;padding:14px 16px;overflow-x:auto;margin:0 0 10px;
+  border-left:3px solid var(--cyan)}
+pre .c{color:#7E8B9B}
+pre .k{color:#E58AB4}
+kbd{font:12px var(--mono);background:var(--card);border:1px solid var(--ink30);padding:1px 5px}
+.callout{border-left:3px solid var(--amber);background:#FBF6EC;padding:12px 16px;font-size:14px;margin:0 0 16px}
+.callout b{color:var(--amber)}
+
+/* ---------- checklist rows ---------- */
+.case{background:var(--card);border:1px solid var(--ink12);border-left:3px solid var(--ink12);margin-bottom:6px}
+.case[data-s=pass]{border-left-color:var(--green)}
+.case[data-s=fail]{border-left-color:var(--magenta)}
+.row{display:flex;align-items:flex-start;gap:12px;padding:11px 14px}
+.id{font:600 11px/1.7 var(--mono);letter-spacing:.04em;color:var(--ink60);white-space:nowrap;padding-top:1px}
+.case[data-s=pass] .id{color:var(--green)} .case[data-s=fail] .id{color:var(--magenta)}
+.chal{flex:1;min-width:0;display:flex;align-items:baseline;cursor:pointer;text-align:left;background:none;border:0;
+  font:inherit;text-transform:none;letter-spacing:0;padding:0;color:inherit}
+.chal:hover{background:none;color:var(--magenta)}
+.chal .c{font-weight:600;font-size:14.5px}
+.chal .dots{flex:1;border-bottom:1.5px dotted var(--ink30);margin:0 8px;transform:translateY(-4px);min-width:18px}
+.chal .r{font:12px/1.7 var(--mono);color:var(--ink60);text-align:right;white-space:nowrap;max-width:46%;overflow:hidden;text-overflow:ellipsis}
+.marks{display:flex;gap:4px;flex-shrink:0}
+.mk{width:26px;height:26px;padding:0;font-size:13px;line-height:1;display:grid;place-items:center;border-color:var(--ink12)}
+.mk.p[aria-pressed=true]{background:var(--green);border-color:var(--green)}
+.mk.f[aria-pressed=true]{background:var(--magenta);border-color:var(--magenta)}
+.tag{font:600 9.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 6px;border:1px solid var(--ink12);
+  color:var(--ink60);align-self:flex-start;white-space:nowrap}
+.tag.auto{color:var(--green);border-color:#BEDCD0;background:#F1F8F5}
+.tag.cred{color:var(--amber);border-color:#E8D6B4;background:#FBF6EC}
+.body{display:none;padding:0 14px 14px 14px;border-top:1px dashed var(--ink12);margin-top:2px}
+.case.open .body{display:block}
+.body h4{font:600 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--magenta);margin:14px 0 7px}
+.body ol,.body ul{margin:0;padding-left:20px;font-size:14px}
+.body li{margin-bottom:4px}
+.body .exp{background:var(--paper2);border:1px solid var(--ink12);padding:10px 13px;font-size:14px}
+.body code{font:12.5px/1.5 var(--mono);background:var(--paper2);border:1px solid var(--ink12);padding:1px 5px}
+.note{width:100%;font:13px/1.5 var(--body);border:1px solid var(--ink12);padding:8px 10px;margin-top:10px;resize:vertical;min-height:52px}
+.note:focus-visible{outline:2px solid var(--magenta);outline-offset:1px}
+.hidden{display:none!important}
+
+footer{border-top:2px solid var(--ink);padding-top:16px;font-size:13px;color:var(--ink60)}
+
+@media (max-width:720px){
+  .chal{flex-direction:column;align-items:stretch}
+  .chal .dots{display:none}
+  .chal .r{text-align:left;max-width:100%;white-space:normal;margin-top:3px}
+  .strip{padding-top:26px}
+}
+@media print{
+  body{background:#fff;font-size:11pt}
+  .gauge-bar,.tools,.marks,.note{display:none!important}
+  .strip{background:#fff;color:#000;border-bottom:3px solid #000}
+  .strip h1{color:#000} .strip p,.meta{color:#333}
+  .case{break-inside:avoid;border:1px solid #999;margin-bottom:4px}
+  .body{display:block!important}
+  pre{background:#fff;color:#000;border:1px solid #999}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="strip">
+  <div class="eyebrow">Preflight checklist · challenge &amp; response</div>
+  <h1>JobPilot<br><em>Bộ testcase</em> Phase 0 → 15</h1>
+  <p>Danh sách kiểm tra chạy tay, xếp theo đúng thứ tự phase trong <code>PLAN.md §9</code>. Mỗi dòng là một cặp
+     <b>việc cần làm</b> ······ <b>kết quả bắt buộc</b>. Đánh dấu ✓/✕ khi chạy; trạng thái lưu ngay trong trình duyệt này.</p>
+  <div class="meta">
+    <span>TỔNG <b id="m-total">—</b> case</span>
+    <span>TỰ ĐỘNG <b id="m-auto">—</b></span>
+    <span>PHASE <b>0 → 15</b></span>
+    <span>SUITE <b>pytest 491 pass</b></span>
+    <span>CẬP NHẬT <b>2026-08-02</b></span>
+  </div>
+</header>
+
+<div class="gauge-bar">
+  <div class="gauge" role="img" aria-label="Tiến độ chạy test">
+    <i class="g-pass" id="g-pass" style="width:0"></i><i class="g-fail" id="g-fail" style="width:0"></i><i class="g-todo" id="g-todo" style="width:100%"></i>
+  </div>
+  <div class="counts"><b id="c-pass">0</b> đạt · <b id="c-fail">0</b> lỗi · <b id="c-todo">0</b> chưa chạy</div>
+  <div class="tools">
+    <button id="f-all" aria-pressed="true">Tất cả</button>
+    <button id="f-todo" aria-pressed="false">Chưa chạy</button>
+    <button id="f-fail" aria-pressed="false">Lỗi</button>
+    <button id="t-open">Mở/đóng hết</button>
+    <button id="t-copy">Chép báo cáo</button>
+    <button id="t-reset">Xoá đánh dấu</button>
+  </div>
+</div>
+
+<section id="setup">
+  <div class="sec-head"><span class="sec-num">TRƯỚC KHI BAY</span><h2>Chạy project ở local</h2></div>
+  <p class="sec-note">Làm đủ 6 bước này rồi mới chạy checklist. Mọi thứ bind vào <code>localhost</code> — đây là công cụ
+     một người dùng chạy trên máy mình, không phải service để expose.</p>
+
+  <div class="callout"><b>Windows:</b> các lệnh dưới viết cho <b>Git Bash</b> (shell mà repo này dùng).
+     <kbd>make</kbd> có thể không có sẵn — cứ chạy thẳng lệnh tương ứng.</div>
+
+  <div class="step"><div class="n">1</div><div>
+    <h3>Cần có sẵn</h3>
+    <p>Python 3.11+ · Node 18+ · Docker Desktop (để build PDF LaTeX) · PostgreSQL 17 (bản cài trên máy, hoặc dùng compose).</p>
+    <pre><span class="c"># kiểm tra nhanh</span>
+python --version &amp;&amp; node --version &amp;&amp; docker --version &amp;&amp; psql --version</pre>
+  </div></div>
+
+  <div class="step"><div class="n">2</div><div>
+    <h3>Cài dependency</h3>
+    <p>Các extra là <b>opt-in</b> để bản cài tối thiểu vẫn nhẹ. <code>all</code> lấy hết.</p>
+    <pre>pip install -e '.[all,dev]'
+playwright install chromium   <span class="c"># chỉ cần cho ITviec / VietnamWorks</span></pre>
+  </div></div>
+
+  <div class="step"><div class="n">3</div><div>
+    <h3>Tạo <code>.env</code> ở gốc repo</h3>
+    <p>Copy từ mẫu rồi điền. File này đã gitignore — <b>không bao giờ commit</b>.</p>
+    <pre>cp .env.example .env</pre>
+    <pre><span class="k">DATABASE_URL</span>=postgresql+psycopg://postgres:&lt;mật khẩu&gt;@127.0.0.1:5432/jobpilot
+<span class="k">JOBPILOT_API_TOKEN</span>=&lt;chuỗi bất kỳ, dùng để gọi API&gt;
+<span class="k">ANTHROPIC_API_KEY</span>=          <span class="c"># chỉ cần cho phase 5 (tailor)</span>
+<span class="k">IMAP_USER</span>=/<span class="k">IMAP_PASSWORD</span>=      <span class="c"># chỉ cần cho nguồn LinkedIn alerts</span></pre>
+  </div></div>
+
+  <div class="step"><div class="n">4</div><div>
+    <h3>Tạo DB và migrate</h3>
+    <pre>psql -U postgres -c "CREATE DATABASE jobpilot;"
+alembic upgrade head        <span class="c"># tạo schema `jobpilot`</span></pre>
+    <p>Hoặc chạy Postgres trong Docker: <code>docker-compose up -d postgres</code>.</p>
+  </div></div>
+
+  <div class="step"><div class="n">5</div><div>
+    <h3>Chạy backend + dashboard</h3>
+    <pre><span class="c"># terminal 1 — API + WebSocket</span>
+uvicorn jobpilot.api.main:app --reload --port 8000
+
+<span class="c"># terminal 2 — dashboard</span>
+cd web &amp;&amp; npm install &amp;&amp; npm run dev</pre>
+    <p>API ở <code>http://127.0.0.1:8000</code> (docs tự sinh ở <code>/docs</code>), dashboard ở
+       <code>http://localhost:5173</code>. Trang: Dashboard · Jobs · Job detail · CV Review · CV Studio ·
+       Applications · Runs · Settings · Guide.</p>
+  </div></div>
+
+  <div class="step"><div class="n">6</div><div>
+    <h3>Lấy token để gọi API bằng curl</h3>
+    <p>Mọi route trừ <code>/health</code> đều cần bearer token. Đặt sẵn biến để dùng lại cho cả checklist:</p>
+    <pre>TOKEN=$(python -c "from jobpilot.config import get_secrets;print(get_secrets().jobpilot_api_token)")
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/stats</pre>
+    <p>Có dữ liệu để test: bấm <b>Crawl now</b> ở trang Runs, hoặc</p>
+    <pre>python -m jobpilot.cli crawl --query "java" --limit 10</pre>
+    <div class="callout"><b>Query phải ngắn.</b> Nó thành slug/từ khoá ở từng site.
+       <code>"java spring boot backend"</code> làm TopCV trả về <b>0 job</b> (và crawl sẽ cảnh báo đúng như vậy).</div>
+  </div></div>
+</section>
+
+<main id="list"></main>
+
+<footer>
+  Nguồn sự thật của tài liệu này: <code>PLAN.md</code> (kiến trúc), <code>SKILL.md</code> (luật tailor),
+  <code>CLAUDE.md</code> (bug đã gặp khi chạy thật + test ghim tương ứng).
+  Case gắn nhãn <span class="tag auto">tự động</span> đã có test trong <code>jobpilot/tests/</code> — chạy tay chỉ để xác nhận trên môi trường thật.
+</footer>
+
+</div>
+
+<script>
+const CASES=[];
+function P(num,title,note,items){CASES.push({num,title,note,items})}
+window.__P=P;
+</script>
+<script>
+/* Dữ liệu checklist — được nhúng thẳng vào TESTCASES.html khi build. */
+
+P('00','Nền tảng, config, secrets','Phase 0 dựng khung. Điểm dễ sai nhất không phải code mà là `config.local.yaml` (do trang Settings ghi) đè lên `config.yaml`.',[
+ {id:'TC-00-01',c:'Chạy `python -m jobpilot.cli --version`',r:'in ra version, exit 0',tag:'auto',
+  steps:['Ở gốc repo chạy `python -m jobpilot.cli --version`'],
+  exp:'In `jobpilot <version>` và thoát với mã 0. Không traceback dù chưa có DB.',pin:'test_cli.py'},
+ {id:'TC-00-02',c:'`cli config` in ra config đã resolve',r:'thấy sources + crawl + apply',tag:'auto',
+  steps:['`python -m jobpilot.cli config`'],
+  exp:'In config hợp lệ gồm `crawl` (jobs_per_site, max_pages, stacks, exclude_keywords), danh sách `sources`, `apply` và `cv`. Không lộ bất kỳ secret nào từ `.env`.',pin:'test_config.py'},
+ {id:'TC-00-03',c:'Overlay `config.local.yaml` merge theo key',r:'nguồn mới trong config.yaml vẫn hiện',tag:'auto',
+  steps:['Mở `jobpilot/config.local.yaml` (nếu có) và xem danh sách `sources` trong đó','Chạy `python -m jobpilot.cli config`'],
+  exp:'Kết quả có **đủ** mọi source khai báo trong `config.yaml` — kể cả source mới mà overlay chưa từng biết (weworkremotely, arbeitnow). Giá trị `enabled` của key nào có trong overlay thì overlay thắng.',pin:'test_config.py::test_overlay_keeps_sources_it_has_never_heard_of'},
+ {id:'TC-00-04',c:'Config sai bị từ chối trước khi ghi',r:'422, file cũ không đổi',tag:'auto',
+  steps:['`curl -s -o /dev/null -w "%{http_code}" -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d \'{"crawl":{"max_pages":"lots"}}\' http://127.0.0.1:8000/settings`'],
+  exp:'HTTP **422**. `config.local.yaml` không bị ghi giá trị hỏng, app vẫn khởi động được ở lần chạy sau.',pin:'test_orchestrator.py'},
+ {id:'TC-00-05',c:'Secrets không nằm trong repo',r:'.env gitignore, không có CV nào',tag:'manual',
+  steps:['`git check-ignore -q .env && echo ignored`','`git ls-files | grep -iE "\\.env$|cv\\.json|jobpilot\\.db"`'],
+  exp:'`.env` được ignore. Lệnh thứ hai **không in ra gì**: repo không chứa file CV, DB dump hay token nào (nguyên tắc 3 và 6).'},
+ {id:'TC-00-06',c:'`make help` liệt kê target',r:'in danh sách target',tag:'manual',
+  steps:['`make help` (bỏ qua nếu Windows không có make)'],
+  exp:'In các target: install, config, db-up, migrate, api, web, crawl, test, dev.'}
+]);
+
+P('01','Build CV ra PDF qua Docker','Toàn bộ PDF trong dự án đi qua image `csmith/awesome-cv-builder`. Bản tailored ghi vào `out/cv/<scope>/`, không bao giờ đụng Master.',[
+ {id:'TC-01-01',c:'Build PDF từ CLI',r:'sinh cv.pdf, exit 0',tag:'manual',
+  steps:['Bật Docker Desktop','`python -m jobpilot.cli cv build`'],
+  exp:'Sinh PDF ở `out/cv/master/cv.pdf`, mở được, nội dung khớp CV trong DB.'},
+ {id:'TC-01-02',c:'Đếm số trang',r:'1 trang, hoặc "unknown" nếu thiếu pypdf',tag:'auto',
+  steps:['Chạy build như trên và đọc dòng log về page count'],
+  exp:'Có `pypdf` (extra `[cv]`) thì báo đúng số trang. Thiếu `pypdf` thì báo **không biết**, không phải `0` — "0 trang" và "không biết" là hai khẳng định khác nhau.',pin:'test_build.py'},
+ {id:'TC-01-03',c:'Lỗi LaTeX được báo rõ',r:'thông báo đọc được, không nuốt lỗi',tag:'auto',
+  steps:['Tạo CV có nội dung gây lỗi biên dịch (hoặc dùng test tương ứng)','Build lại'],
+  exp:'Trả về lỗi có thể hành động được (trích log LaTeX), không phải exception trần hay im lặng thành công.',pin:'test_build.py'},
+ {id:'TC-01-04',c:'Build không đụng thư mục `resume/`',r:'resume/ nguyên vẹn',tag:'manual',
+  steps:['`git status --short resume/` trước và sau khi build'],
+  exp:'Không có thay đổi nào trong `resume/`. Mọi artefact nằm trong `out/`.'}
+]);
+
+P('02','Database + API skeleton','Postgres là **nguồn sự thật duy nhất**. Mọi thay đổi trạng thái đi qua API để web và Slack không lệch nhau.',[
+ {id:'TC-02-01',c:'`alembic upgrade head` trên DB sạch',r:'tạo schema jobpilot đầy đủ',tag:'manual',
+  steps:['`psql -U postgres -c "CREATE DATABASE jobpilot_test;"`','Trỏ `DATABASE_URL` sang DB đó rồi `alembic upgrade head`'],
+  exp:'Chạy sạch toàn bộ migration. Có schema `jobpilot` với bảng jobs/applications/edits/runs/cv_versions, enum `job_status`, và GIN index trên `payload`.'},
+ {id:'TC-02-02',c:'`GET /health` không cần token',r:'200',tag:'auto',
+  steps:['`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health`'],
+  exp:'HTTP **200** dù không gửi Authorization.',pin:'test_api.py::test_health_is_public'},
+ {id:'TC-02-03',c:'Gọi API không token',r:'401',tag:'auto',
+  steps:['`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/jobs`'],
+  exp:'HTTP **401**. Mọi route trừ `/health` đều bị chặn.',pin:'test_api.py'},
+ {id:'TC-02-04',c:'`GET /jobs` có token',r:'200 + mảng job',tag:'auto',
+  steps:['`curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/jobs`'],
+  exp:'HTTP 200, trả mảng JSON. Mỗi phần tử có id dạng `<source>:<native_id>`, title, company, status, match_score.',pin:'test_api.py'},
+ {id:'TC-02-05',c:'`GET /jobs/{id}` với id không tồn tại',r:'404',tag:'auto',
+  steps:['`curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/jobs/khong:co`'],
+  exp:'HTTP **404**, không phải 500.',pin:'test_api.py'},
+ {id:'TC-02-06',c:'`GET /stats`',r:'có funnel + fresh + by_day',tag:'auto',
+  steps:['`curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/stats`'],
+  exp:'Trả về số đếm theo status (funnel), `fresh`, `by_level`, `by_source`, `by_day`. Tổng theo status khớp số row thật trong bảng `jobs`.',pin:'test_api.py'},
+ {id:'TC-02-07',c:'WebSocket `/ws` nhận event',r:'nhận job_updated khi đổi state',tag:'manual',
+  steps:['Mở dashboard (nó tự kết nối `/ws`)','Ở terminal khác, shortlist một job qua curl','Quan sát trang'],
+  exp:'Chỉ báo **LIVE** sáng, và danh sách job tự cập nhật mà không cần F5.'},
+ {id:'TC-02-08',c:'CORS chỉ cho localhost',r:'origin lạ bị chặn',tag:'auto',
+  steps:['Gửi request với header `Origin: https://evil.example`'],
+  exp:'Không trả về `Access-Control-Allow-Origin` cho origin ngoài localhost.',pin:'test_api.py'}
+]);
+
+P('03','Crawler MVP — dedup, robots, rate limit','Site nào fail thì log rồi chạy tiếp; không retry vô hạn (nguyên tắc 5).',[
+ {id:'TC-03-01',c:'Crawl khi thiếu Playwright',r:'fail có thông báo, vẫn ghi Run',tag:'manual',
+  steps:['Ở môi trường chưa `playwright install chromium`, chạy `python -m jobpilot.cli crawl --query java`'],
+  exp:'Site cần browser báo lỗi **hướng dẫn cài đặt được**, các site khác vẫn chạy, và vẫn có một row trong bảng `runs`.'},
+ {id:'TC-03-02',c:'Crawl ghi lại một `Run`',r:'runs có stats per-site',tag:'auto',
+  steps:['Crawl một lần','`curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/runs | head`'],
+  exp:'Run mới nhất có `stats.sites` liệt kê từng nguồn với ok/fetched/inserted/updated/duplicates/filtered.',pin:'test_crawler_pipeline.py'},
+ {id:'TC-03-03',c:'Crawl lại cùng query',r:'updated tăng, inserted = 0',tag:'auto',
+  steps:['Chạy crawl hai lần liên tiếp cùng query','So sánh `totals` của hai run'],
+  exp:'Lần hai: `inserted=0`, `updated>0`. Không sinh row trùng — dedup theo `id = <source>:<native_id>`.',pin:'test_crawler_pipeline.py'},
+ {id:'TC-03-04',c:'Dedup xuyên nguồn',r:'cùng job ở 2 site chỉ vào 1 row',tag:'auto',
+  steps:['Bật ≥2 nguồn rồi crawl','Xem `duplicates` trong stats'],
+  exp:'Job trùng theo `(company, normalized_title)` trong `dedup_days` được đếm vào `duplicates` và **không** insert lần hai.',pin:'test_crawler_pipeline.py'},
+ {id:'TC-03-05',c:'Trạng thái job không bị reset khi crawl lại',r:'SHORTLISTED vẫn là SHORTLISTED',tag:'auto',
+  steps:['Shortlist một job','Crawl lại đúng query đó','Xem lại job'],
+  exp:'Các field scrape được làm mới, nhưng `status` **giữ nguyên** — job đã shortlist/apply không bị đẩy về DISCOVERED.',pin:'test_crawler_pipeline.py'},
+ {id:'TC-03-06',c:'robots.txt được tôn trọng',r:'URL bị cấm không được fetch',tag:'auto',
+  steps:['Chạy đoạn kiểm tra: `python -c "from jobpilot.crawler.robots import RobotsPolicy;from jobpilot.crawler.fetch import DEFAULT_USER_AGENT;p=RobotsPolicy(DEFAULT_USER_AGENT);print(p.allowed(\'https://jobicy.com/api/v2/remote-jobs\'))"`'],
+  exp:'In `False`. Policy đọc **toàn bộ** robots.txt (dòng `Disallow: /api/` của Jobicy nằm ở dòng 48).',pin:'test_crawler_unit.py'},
+ {id:'TC-03-07',c:'Rate limit giữa các request',r:'có delay 2–5s',tag:'auto',
+  steps:['Crawl với log INFO và quan sát khoảng cách thời gian giữa các lần fetch'],
+  exp:'Có độ trễ ngẫu nhiên trong khoảng `crawl.rate_limit_seconds`. Không bắn liên tiếp không nghỉ.',pin:'test_crawler_unit.py'},
+ {id:'TC-03-08',c:'`exclude_keywords` chỉ match title',r:'JD nhắc .NET vẫn được giữ',tag:'auto',
+  steps:['Đặt `exclude_keywords: [".NET"]`','Crawl một job Java có nhắc .NET trong phần "nice to have"'],
+  exp:'Job **không** bị loại — chỉ title mới bị so khớp, vì match cả JD sẽ loại nhầm hàng loạt.',pin:'test_crawler_unit.py'},
+ {id:'TC-03-09',c:'Job không khớp stack bị lọc',r:'match_score 0 → filtered',tag:'auto',
+  steps:['Crawl với `stacks` là Java/Spring','Xem `filtered` trong stats'],
+  exp:'Job có `match_score = 0` bị đếm vào `filtered` và không vào DB.',pin:'test_crawler_pipeline.py'}
+]);
+
+P('04','Web Dashboard','Control plane chính. Bind localhost, không expose ra ngoài.',[
+ {id:'TC-04-01',c:'Trang Dashboard render',r:'KPI + funnel + biểu đồ',tag:'manual',
+  steps:['Mở `http://localhost:5173/`'],
+  exp:'Thấy KPI cards, funnel theo status, biểu đồ theo nguồn và theo ngày. Số liệu khớp `GET /stats`. Console không có lỗi đỏ.'},
+ {id:'TC-04-02',c:'Tìm kiếm và lọc ở trang Jobs',r:'kết quả thu hẹp đúng',tag:'manual',
+  steps:['Vào `/jobs`, gõ một từ khoá vào ô search','Bật filter "fresh"'],
+  exp:'Danh sách lọc đúng theo `q` (full-text trên JD) và chỉ còn job < 48h khi bật fresh.'},
+ {id:'TC-04-03',c:'Shortlist một job',r:'status đổi + WS đẩy',tag:'auto',
+  steps:['Bấm Shortlist trên một job ở trạng thái DISCOVERED'],
+  exp:'Job chuyển **SHORTLISTED** ngay trên UI, không cần reload. Gọi `GET /jobs/{id}` thấy status đã đổi trong DB.',pin:'test_api.py'},
+ {id:'TC-04-04',c:'Skip một job',r:'status = SKIPPED',tag:'auto',
+  steps:['Bấm Skip trên một job'],
+  exp:'Job chuyển **SKIPPED** và biến khỏi danh sách mặc định.',pin:'test_api.py'},
+ {id:'TC-04-05',c:'Trang Job detail',r:'JD + skills + link gốc',tag:'manual',
+  steps:['Mở `/jobs/:id` của một job vừa crawl'],
+  exp:'Hiện JD dạng markdown đầy đủ, danh sách skills, match_score, link gốc mở đúng trang tuyển dụng.'},
+ {id:'TC-04-06',c:'Thêm job bằng tay',r:'201, dán lại cùng link thì update',tag:'auto',
+  steps:['Dùng nút **Add job** ở trang Jobs, dán link + JD','Dán lại đúng link đó lần nữa'],
+  exp:'Lần đầu tạo job mới (201). Lần hai **update** chứ không tạo bản trùng (link LinkedIn cho id ổn định).',pin:'test_api.py'},
+ {id:'TC-04-07',c:'Dark / light theme',r:'đổi được, giữ sau reload',tag:'manual',
+  steps:['Bấm nút đổi theme, reload trang'],
+  exp:'Cả hai theme đọc được (đủ tương phản), lựa chọn được giữ lại.'},
+ {id:'TC-04-08',c:'Giao diện responsive',r:'dùng được ở khổ hẹp',tag:'manual',
+  steps:['Thu cửa sổ xuống ~390px hoặc bật device toolbar'],
+  exp:'Không tràn ngang, không chồng chữ, các nút vẫn bấm được.'}
+]);
+
+P('04.5','CV Studio','Nguồn sự thật của nội dung CV là **JSON structured** → Jinja2 → `.tex` → Docker. Mỗi lần save là một row `cv_versions`.',[
+ {id:'TC-045-01',c:'DB mới tự seed CV **rỗng**',r:'không có dữ liệu cá nhân nào',tag:'auto',
+  steps:['Trỏ vào một DB trống, `alembic upgrade head`','`python -m jobpilot.cli cv seed`','Mở `/cv`'],
+  exp:'Tạo Master CV **rỗng** (`cv/skeleton.py`). Tuyệt đối **không** seed từ `cv/sample.py` — đó là CV hư cấu chỉ dùng cho test (nguyên tắc 3).',pin:'test_cv_store.py'},
+ {id:'TC-045-02',c:'Nạp CV có sẵn vào DB',r:'CV hiện đúng trong Studio',tag:'auto',
+  steps:['`python -m jobpilot.cli cv import my-cv.local.json`','Mở `/cv`'],
+  exp:'Nội dung khớp file JSON. File `*.local.json` nằm ngoài git.',pin:'test_cv_store.py'},
+ {id:'TC-045-03',c:'Backup CV ra file',r:'export rồi import lại y hệt',tag:'auto',
+  steps:['`python -m jobpilot.cli cv export backup.local.json`','Import lại vào DB trống và so sánh'],
+  exp:'Round-trip không mất dữ liệu.',pin:'test_cv_store.py'},
+ {id:'TC-045-04',c:'Sửa CV tạo version mới',r:'version tăng, bản cũ còn nguyên',tag:'auto',
+  steps:['Sửa gì đó trong CV Studio rồi Save','`GET /cv/master/versions`'],
+  exp:'Có version mới với `author = user`. Version cũ vẫn truy cập được — bảng là append-only.',pin:'test_cv_api.py'},
+ {id:'TC-045-05',c:'Compile PDF từ Studio',r:'PDF phản ánh đúng thay đổi',tag:'manual',
+  steps:['Đổi vị trí một section, ẩn một section, sửa một dòng','Bấm Compile rồi xem preview'],
+  exp:'PDF thật (Docker LaTeX) phản ánh đúng cả ba thay đổi.'},
+ {id:'TC-045-06',c:'Rollback về version cũ',r:'PDF identical với bản gốc',tag:'auto',
+  steps:['`POST /cv/master/rollback/1`','Compile lại và so sánh với PDF của version 1'],
+  exp:'Nội dung PDF **trùng khớp** bản gốc. Rollback là một lần save mới, không xoá lịch sử.',pin:'test_cv_store.py'},
+ {id:'TC-045-07',c:'Ký tự đặc biệt LaTeX được escape',r:'không vỡ build',tag:'auto',
+  steps:['Nhập vào một bullet: `50% & <chi phí> #1 _ {x} ~ ^`','Save rồi Compile'],
+  exp:'Build thành công, PDF hiện đúng ký tự. Text trong `CvDocument` **không bao giờ** chứa LaTeX thô — chỉ subset markdown `**bold**`, `` `tech` ``, `~techfe~`, `[label](url)`.',pin:'test_cv_render.py'},
+ {id:'TC-045-08',c:'`GET /cv/templates`',r:'trả danh sách theme',tag:'auto',
+  steps:['`curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/cv/templates`'],
+  exp:'Trả về các theme màu Awesome-CV chọn được trong Studio.',pin:'test_cv_api.py'},
+ {id:'TC-045-09',c:'Preview PDF trên trình duyệt thật',r:'hiện PDF, không trống',tag:'manual',
+  steps:['Mở `/cv` bằng Chrome/Edge bình thường (không headless)'],
+  exp:'Khung preview hiện PDF. Headless Chrome **không có PDF viewer** nên khung sẽ trống — đó là giới hạn của headless, không phải bug.'}
+]);
+
+P('05','Tailor engine + CV Review','Guardrail chống bịa là **hình dạng schema**, không phải luật để agent tự giác: plan chỉ đánh theo chỉ số của Master CV, free text duy nhất là `summary`.',[
+ {id:'TC-05-01',c:'Tailor job chưa shortlist',r:'409 ngay trong request',tag:'auto',
+  steps:['Chọn job đang ở DISCOVERED','POST tới `/jobs/<id>/tailor` và đọc mã HTTP'],
+  exp:'HTTP **409**. Thứ chỉ cần đọc DB là từ chối được thì phải từ chối ngay, không hoãn thành "chờ một phút rồi mới biết mình sai".',pin:'test_review_api.py'},
+ {id:'TC-05-02',c:'Tailor một job đã shortlist',r:'sinh plan + CV version author=agent',tag:'cred',
+  steps:['Cần `ANTHROPIC_API_KEY` trong `.env`','Shortlist job rồi `python -m jobpilot.cli tailor <job_id>`'],
+  exp:'Job đi TAILORING → **REVIEW**. Có row `cv_versions` mới với `author = agent`, `meta` chứa plan + diff.'},
+ {id:'TC-05-03',c:'Guardrail chặn plan bịa skill',r:'chặn ở tầng HTTP, không ghi CV nào',tag:'auto',
+  steps:['Dùng plan cố tình thêm skill không có trong Master CV (fixture có sẵn)'],
+  exp:'Bị chặn (422, hoặc task failed với `error_kind=GuardrailViolation`) và **không có `cv_versions` nào được ghi**. Đây là case quan trọng nhất của cả dự án.',pin:'test_tailor_plan.py'},
+ {id:'TC-05-04',c:'Master CV không đổi sau khi tailor',r:'version của master giữ nguyên',tag:'auto',
+  steps:['Ghi lại version mới nhất của scope `master`','Tailor một job rồi kiểm tra lại'],
+  exp:'Master **không** phát sinh version mới. Bản tailored sống ở scope riêng (nguyên tắc 4).',pin:'test_tailor_service.py'},
+ {id:'TC-05-05',c:'Diff và gap report',r:'rewritten / trimmed / hidden / reordered',tag:'auto',
+  steps:['Mở `/jobs/:id/review`'],
+  exp:'Diff là **structural** (di chuyển / ẩn / rút gọn) chứ không phải line diff, vì tailor chủ yếu *di chuyển* nội dung. Gap report nêu rõ skill JD đòi mà CV không có.',pin:'test_tailor_service.py'},
+ {id:'TC-05-06',c:'Vòng sửa bị chặn khi hết lượt',r:'409 ở vòng thứ K+1',tag:'auto',
+  steps:['Với `edit_max_rounds: 3`, gọi `/edit` bốn lần'],
+  exp:'Ba lần đầu OK, lần thứ tư trả **409** ngay trong request.',pin:'test_review_api.py'},
+ {id:'TC-05-07',c:'Approve bản tailored',r:'status = APPROVED',tag:'auto',
+  steps:['Bấm Approve ở trang CV Review'],
+  exp:'Job chuyển **APPROVED** và nút Apply mở ra.',pin:'test_review_api.py'},
+ {id:'TC-05-08',c:'Reject bản tailored',r:'status = SKIPPED',tag:'auto',
+  steps:['Bấm Bỏ ở trang CV Review'],
+  exp:'Job chuyển **SKIPPED**.',pin:'test_review_api.py'},
+ {id:'TC-05-09',c:'Tải PDF bản tailored',r:'PDF hợp lệ, đúng job',tag:'auto',
+  steps:['GET `/jobs/<id>/cv` và lưu ra file'],
+  exp:'Tải về PDF mở được, đúng bản tailored của job đó.',pin:'test_review_api.py'},
+ {id:'TC-05-10',c:'Mở bản tailored trong CV Studio',r:'sửa tay được, không cần vòng agent',tag:'manual',
+  steps:['Từ CV Review bấm "Mở trong CV Studio"'],
+  exp:'Studio mở đúng scope của job (`/cv/:scope`), sửa và save được như Master.'}
+]);
+
+P('06','Apply dispatcher + Applications board','Email là kênh duy nhất được tự gửi, và nó có **3 cổng độc lập**: `enabled` → `dry_run` → `test_recipient`. Gỡ từng cái một.',[
+ {id:'TC-06-01',c:'Email đang tắt',r:'chặn ngay ở tầng HTTP',tag:'auto',
+  steps:['Giữ mặc định `apply.email.enabled: false`','Gọi `/jobs/<id>/apply` cho một job kênh email'],
+  exp:'Bị từ chối kèm lý do rõ ("email apply is disabled"). Không kết nối SMTP nào được mở.',pin:'test_apply_api.py'},
+ {id:'TC-06-02',c:'Dry run',r:'không gửi gì, job vẫn APPROVED',tag:'auto',
+  steps:['Bật `enabled: true`, giữ `dry_run: true`','Apply một job'],
+  exp:'Có row `Application` ghi lại message đã dựng, **không** thư nào rời máy, và job **vẫn ở APPROVED** — vì chưa gửi gì thì chưa có gì để chuyển trạng thái.',pin:'test_apply.py'},
+ {id:'TC-06-03',c:'`test_recipient` chuyển hướng thư',r:'thư về hộp của bạn, không về NTD',tag:'manual',
+  steps:['Đặt `test_recipient: you@example.com`, `dry_run: false`','Apply một job'],
+  exp:'Thư đến đúng địa chỉ test, **không** đến nhà tuyển dụng. Đây là cổng cuối cùng nên gỡ.'},
+ {id:'TC-06-04',c:'PDF đính kèm đúng bản tailored',r:'giống hệt từng byte',tag:'auto',
+  steps:['Gửi thật tới test_recipient rồi lưu file đính kèm','So hash với `out/cv/<scope>/cv.pdf`'],
+  exp:'Hai file **byte-identical**.',pin:'test_apply.py'},
+ {id:'TC-06-05',c:'Cover letter không bịa skill',r:'"chưa dùng X" thì được, "thạo X" thì không',tag:'auto',
+  steps:['Đọc body email của một job có gap skill'],
+  exp:'`paragraphs` chỉ nói những gì Master CV có. Chỗ **duy nhất** được nhắc skill thiếu là `learning_note`, và chỉ những skill mà plan đã đánh dấu MISSING.',pin:'test_apply.py'},
+ {id:'TC-06-06',c:'Kênh portal không tự submit',r:'pre-fill xong thì dừng',tag:'auto',
+  steps:['`python -m jobpilot.cli apply <job_id> --open-portal`'],
+  exp:'Mở browser, điền được gì thì điền, rồi **dừng** và bàn giao. Không lệnh submit nào được gọi (nguyên tắc 2).',pin:'test_apply.py'},
+ {id:'TC-06-07',c:'Xác nhận đã tự nộp',r:'status = SUBMITTED',tag:'auto',
+  steps:['`python -m jobpilot.cli confirm-submit <job_id>`'],
+  exp:'Job chuyển **SUBMITTED**, cột "Your turn" trên board bớt một thẻ.',pin:'test_apply_api.py'},
+ {id:'TC-06-08',c:'Báo nộp thất bại',r:'status = FAILED + link nộp tay',tag:'auto',
+  steps:['POST `/jobs/<id>/report-failure`'],
+  exp:'Job chuyển **FAILED**, lưu nguyên văn lý do, board hiện link để nộp tay.',pin:'test_apply_api.py'},
+ {id:'TC-06-09',c:'Trang Applications',r:'4 cột + banner trạng thái cổng',tag:'manual',
+  steps:['Mở `/applications`'],
+  exp:'Bốn cột Prepared / Your turn / Submitted / Failed. Banner nói rõ email đang ở cổng nào: tắt, dry-run, đang chuyển hướng, hay đang gửi thật.'},
+ {id:'TC-06-10',c:'Lọc application theo kết quả',r:'chỉ trả đúng nhóm',tag:'auto',
+  steps:['GET `/applications?result=failed`'],
+  exp:'Chỉ trả về application có result tương ứng.',pin:'test_apply_api.py'}
+]);
+
+P('07','Slack — kênh phụ','Slack là **client thuần của REST API**; backend không biết gì về Slack. Nhờ vậy web và Slack không thể lệch state.',[
+ {id:'TC-07-01',c:'Chạy khi thiếu token',r:'degrade rõ ràng, không crash',tag:'auto',
+  steps:['Bỏ trống các biến `SLACK_*` rồi `python -m jobpilot.cli slack`'],
+  exp:'Báo thiếu đúng thứ gì và thoát gọn, không traceback.',pin:'test_slack.py'},
+ {id:'TC-07-02',c:'Block Kit tôn trọng giới hạn Slack',r:'tự cắt thay vì để Slack trả 400',tag:'auto',
+  steps:['Render card cho một job có JD rất dài'],
+  exp:'≤50 block, section ≤3000 ký tự, label ≤75, value ≤2000 — builder tự truncate.',pin:'test_slack.py'},
+ {id:'TC-07-03',c:'Bấm nút trên Slack đổi state thật',r:'dashboard thấy y hệt',tag:'cred',
+  steps:['Cần Slack app + 3 token','Bấm Approve trên Slack rồi mở dashboard'],
+  exp:'Hai kênh thấy cùng một state vì cùng đi qua REST API. **Chưa verify được trên workspace thật** — thiếu credential, không phải thiếu code.'},
+ {id:'TC-07-04',c:'Mirror WS lọc bớt event',r:'chỉ post review / apply / failure',tag:'auto',
+  steps:['Đẩy nhiều event qua WS rồi đếm số notification'],
+  exp:'Các transition thường **cố tình im lặng** để channel còn dùng được; chỉ báo những mốc cần người quyết.',pin:'test_slack.py'}
+]);
+
+P('08','Orchestration — queue, runs, settings','Queue in-process, 1 worker. `status` luôn được ghi **cuối cùng** (sau `result`/`finished_at`) vì đó là tín hiệu mọi consumer poll.',[
+ {id:'TC-08-01',c:'Kích hoạt crawl qua API',r:'202 + task, trả về tức thì',tag:'auto',
+  steps:['POST `/crawl` với body `{"limit":10}`, đo thời gian phản hồi'],
+  exp:'HTTP **202** kèm task id, trả về trong vài chục ms — không chờ crawl xong.',pin:'test_orchestrator.py'},
+ {id:'TC-08-02',c:'Bắn crawl thứ hai khi đang chạy',r:'409',tag:'auto',
+  steps:['Gọi `/crawl` lần nữa ngay khi task đầu còn running'],
+  exp:'HTTP **409**. Hai crawl song song sẽ đua rate-limit trên cùng site.',pin:'test_orchestrator.py'},
+ {id:'TC-08-03',c:'Theo dõi task realtime',r:'queued → running → done',tag:'manual',
+  steps:['Mở `/runs` rồi bấm **Crawl now**'],
+  exp:'Thấy `queued` → `running` (kèm progress từng site) → `done`; khi done thì có đủ `finished_at` và `result`.'},
+ {id:'TC-08-04',c:'Hỏi task id không tồn tại',r:'404 kèm giải thích',tag:'auto',
+  steps:['GET `/tasks/khongcoid`'],
+  exp:'HTTP **404**, message nói rõ queue chỉ giữ 50 task gần nhất.',pin:'test_orchestrator.py'},
+ {id:'TC-08-05',c:'Lịch sử run có `job_count`',r:'đếm từ bảng jobs thật',tag:'auto',
+  steps:['GET `/runs`'],
+  exp:'Mỗi run có `job_count` đếm **từ bảng jobs**, không tin số trong blob stats của chính nó.',pin:'test_orchestrator.py'},
+ {id:'TC-08-06',c:'Lưu Settings',r:'`config.yaml` không đổi một byte',tag:'auto',
+  steps:['Ghi lại hash của `jobpilot/config.yaml`','Đổi một giá trị ở trang Settings rồi Save','Hash lại'],
+  exp:'Hash **không đổi**. Thay đổi ghi vào `config.local.yaml` — vì comment trong `config.yaml` là tài liệu (nhất là 3 cổng an toàn email) và YAML round-trip sẽ xoá sạch chúng.',pin:'test_orchestrator.py'},
+ {id:'TC-08-07',c:'Một site fail không kéo cả batch',r:'báo per-site, run vẫn ghi',tag:'auto',
+  steps:['Bật một nguồn chắc chắn fail (hoặc ngắt mạng) rồi crawl'],
+  exp:'Site đó `ok=false` kèm `error`; các site khác vẫn chạy hết; run vẫn được ghi.',pin:'test_crawler_pipeline.py'},
+ {id:'TC-08-08',c:'Chạy vòng lặp cho cron',r:'lặp đúng chu kỳ, rc=1 khi mọi site fail',tag:'auto',
+  steps:['`python -m jobpilot.cli run --every 60` rồi Ctrl-C','Kiểm tra `echo $?` sau một lần mà mọi site đều fail'],
+  exp:'Lặp đúng chu kỳ; trả mã thoát **1** khi tất cả site fail, để cron nhìn thấy được.',pin:'test_cli.py'}
+]);
+
+P('09','TopCV + VietnamWorks chạy thật','Target ổn định nhất là block schema.org `JobPosting` — site có động lực giữ nó đúng (Google Jobs index dựa vào đó) mạnh hơn động lực giữ tên class CSS.',[
+ {id:'TC-09-01',c:'TopCV: từ khoá nằm trong **path**',r:'không dùng `?keyword=`',tag:'auto',
+  steps:['Chạy `python -c "from jobpilot.crawler.topcv import TopCVScraper as S;print(S().search_url(\'Java Spring Boot\'))"`'],
+  exp:'Ra `/tim-viec-lam-java-spring-boot`. `?keyword=` bị TopCV **im lặng bỏ qua**: nó trả 200 + 50 card của category IT chung, nên crawl báo thành công mà giao sai job.',pin:'test_topcv.py'},
+ {id:'TC-09-02',c:'`native_id` lấy từ URL',r:'không lấy JSON-LD `identifier`',tag:'auto',
+  steps:['Crawl TopCV rồi xem id của nhiều job cùng một công ty'],
+  exp:'Mỗi job một id riêng. JSON-LD `identifier` là id của **nhà tuyển dụng** — dùng nó thì mọi job cùng công ty chung một row và mỗi lần crawl ghi đè lần trước.',pin:'test_topcv.py'},
+ {id:'TC-09-03',c:'Skill chỉ lấy từ nhóm "Chuyên môn"',r:'không có "Team building"',tag:'auto',
+  steps:['Mở một job TopCV và xem danh sách skills'],
+  exp:'Không có "Bảo hiểm xã hội" / "Team building" / "Du lịch hàng năm". TopCV render 3 nhóm tag markup y hệt nhau; lấy hết thì phúc lợi thành skill, chảy vào `match_score` và gap report của tailor.',pin:'test_topcv.py'},
+ {id:'TC-09-04',c:'Không quét salary trên cả body detail',r:'không lấy lương của job hàng xóm',tag:'auto',
+  steps:['Xem salary của vài job TopCV liền nhau'],
+  exp:'Không có hai job không liên quan cùng ra một mức lương. `.box-job-information-detail` chứa cả panel "việc làm tương tự" và card trong đó **có lương riêng** sau khi hydrate. Không công bố thì `None` là câu trả lời đúng.',pin:'test_topcv.py'},
+ {id:'TC-09-05',c:'City nhận diện theo giá trị',r:'"Remote debugging" không thành location',tag:'auto',
+  steps:['Kiểm tra location của các job có tag kỹ thuật chứa chữ "remote"'],
+  exp:'Giữ "Hà Nội, Hồ Chí Minh"; loại "Java, Remote debugging". Match substring không phân biệt hoa thường từng biến tag skill thành location — **sai dữ liệu trông như đúng, tệ hơn thiếu dữ liệu**.',pin:'test_vietnam.py'},
+ {id:'TC-09-06',c:'`SearchHit.extra` chảy sang `RawJob`',r:'label kinh nghiệm không mất',tag:'auto',
+  steps:['Crawl TopCV rồi xem `payload.experience` của job'],
+  exp:'Có giá trị. `normalize` chỉ spread `raw.extra`, nên quên `extra=dict(hit.extra)` trong `parse_detail` là mất sạch *mà test cấp-card vẫn xanh*.',pin:'test_topcv.py'},
+ {id:'TC-09-07',c:'VietnamWorks cần Playwright',r:'fetch thường trả list rỗng',tag:'manual',
+  steps:['Thử `curl` trang `/viec-lam?q=java` và đếm card'],
+  exp:'HTML thô không có job — chúng đến từ XHR sau hydration. Đọc DOM `.new-job-card` chứ **không** gọi API nội bộ `ms.vietnamworks.com` (host đó không có robots.txt).'},
+ {id:'TC-09-08',c:'Field dài bị clamp theo width cột',r:'không nổ giữa flush trên Postgres',tag:'auto',
+  steps:['Crawl thật lên **Postgres** (không phải SQLite) với một job có title rất dài'],
+  exp:'title/company/location/salary bị cắt theo đúng width cột (payload vẫn giữ text đầy đủ). SQLite **không** enforce `VARCHAR(n)` nên bug này chỉ lộ trên Postgres — và nó nổ *giữa flush*, rollback cả crawl.',pin:'test_crawler_unit.py'}
+]);
+
+P('10','Tailor + apply rời request path','Nhánh `feat/async-tailor-apply`. Cái **không** hoãn: mọi thứ chỉ cần đọc DB là từ chối được vẫn trả 409/422 ngay trong request.',[
+ {id:'TC-10-01',c:'`POST /tailor` trả 202',r:'không block cả vòng build',tag:'auto',
+  steps:['Shortlist một job rồi POST `/jobs/<id>/tailor`, đo thời gian'],
+  exp:'HTTP **202** + task, trả về trong vài chục ms. Tiến độ về qua WS `task_updated`.',pin:'test_review_api.py'},
+ {id:'TC-10-02',c:'Lỗi rõ ràng vẫn báo ngay',r:'409/422 trong request, không hoãn',tag:'auto',
+  steps:['Gọi tailor cho job sai status, và gọi edit khi đã hết vòng'],
+  exp:'Trả 409/422 **ngay**. Hoãn một lỗi rõ ràng thành "chờ một phút rồi mới biết sai" là làm UX tệ đi, không phải làm nó async.',pin:'test_review_api.py'},
+ {id:'TC-10-03',c:'Một job chỉ một task',r:'8 request song song → 1×202, 7×409',tag:'auto',
+  steps:['Bắn 8 POST `/tailor` đồng thời cho cùng một job'],
+  exp:'Đúng **1** cái 202 và **7** cái 409, và chỉ **1** task được tạo. Guard nằm trong `TaskQueue.submit(exclusive=True)` — check và insert phải cùng một lần giữ lock, đặt ở route là TOCTOU.',pin:'test_orchestrator.py'},
+ {id:'TC-10-04',c:'Lỗi guardrail phân biệt được',r:'`error_kind=GuardrailViolation`',tag:'auto',
+  steps:['Cho tailor trả plan bịa skill','Đọc task khi nó failed'],
+  exp:'`error_kind` là tên class exception, tách khỏi `error`, để UI nói rõ "chưa ghi gì vào CV" thay vì lẫn với lỗi build/mạng.',pin:'test_review_api.py'},
+ {id:'TC-10-05',c:'Exception lạ không để job treo',r:'hạ về FAILED, không kẹt TAILORING',tag:'auto',
+  steps:['Ép service ném một lỗi không lường trước giữa chừng'],
+  exp:'Job xuống **FAILED** thay vì đứng mãi ở "đang tailor" mà chẳng có gì đang tailor. Task vẫn giữ nguyên văn lỗi thật.',pin:'test_tailor_service.py'},
+ {id:'TC-10-06',c:'`pages` là `int | None`',r:'không hiện badge đỏ "0 pages"',tag:'auto',
+  steps:['Chạy khi thiếu `pypdf` rồi xem badge số trang trên CV Review'],
+  exp:'`None` = **không biết** → UI ẩn badge. Trước đây `... or 0` render thành badge đỏ "0 pages" trên một CV 1 trang hoàn toàn bình thường.',pin:'test_build.py'},
+ {id:'TC-10-07',c:'Queue shutdown không nói dối',r:'task đang queued → failed',tag:'auto',
+  steps:['Shutdown queue khi còn task `queued`'],
+  exp:'Task bị đánh dấu **failed** ("cancelled — the queue shut down") thay vì nằm `queued` vĩnh viễn trong khi không có gì chạy.',pin:'test_orchestrator.py'}
+]);
+
+P('11','Phân trang + nguồn tier-2','Một fetch từng là cả cuộc crawl. Guard quan trọng nhất: site *nhận* `?page=2` rồi bỏ qua sẽ trả lại trang 1.',[
+ {id:'TC-11-01',c:'Đi nhiều trang để đủ `jobs_per_site`',r:'VNW 9 → 29 job',tag:'auto',
+  steps:['`python -m jobpilot.cli crawl --query java --limit 30` với VietnamWorks bật','Đọc log từng trang'],
+  exp:'Trang 1 ~9 hit, trang 2 thêm ~20 → tổng ~29 unique. Trước đây dừng ở 9 vì phần còn lại là skeleton chờ scroll.',pin:'test_pagination.py'},
+ {id:'TC-11-02',c:'Site bỏ qua `?page=`',r:'phát hiện và dừng, có cảnh báo',tag:'auto',
+  steps:['Quan sát log khi một site trả lại đúng kết quả trang trước'],
+  exp:'Cảnh báo "ignoring the page parameter" rồi dừng. Không dedup xuyên trang thì crawl gom cùng 10 job 5 lần và **báo cáo một deep sweep thành công**.',pin:'test_pagination.py'},
+ {id:'TC-11-03',c:'Trang không có job hợp lệ',r:'không kết thúc vòng lặp',tag:'auto',
+  steps:['Crawl Arbeitnow với query Java và đọc log từng trang'],
+  exp:'Trang có 100 job nhưng 0 cái khớp thì **vẫn đi tiếp**. Verify thật: trang 3 rỗng nghĩa nhưng trang 4 và 5 mỗi trang có 1 job Java thật → 7 job thành **9**.',pin:'test_pagination.py'},
+ {id:'TC-11-04',c:'Trang 1 fail vs trang N fail',r:'trang 1 fail cả site, trang N giữ hit cũ',tag:'auto',
+  steps:['Ép lỗi ở trang 1, rồi ép lỗi ở trang 3'],
+  exp:'Trang 1 lỗi → site fail (pipeline cô lập). Trang 3 lỗi → **giữ nguyên** hit của trang 1-2 kèm log lý do.',pin:'test_pagination.py'},
+ {id:'TC-11-05',c:'Trang chặn anti-bot',r:'raise theo status, không thành "0 job"',tag:'manual',
+  steps:['Đặt `jobs_per_site` > 50 rồi crawl TopCV để chạm trang 2'],
+  exp:'Log ghi `page 2 failed (… HTTP 403 (blocked — anti-bot)), keeping 50 hit(s)`. Trang chặn parse ra 0 hit và **trông y hệt "hết kết quả"** nếu không chặn ở tầng fetch.'},
+ {id:'TC-11-06',c:'TopCV trả 0 kết quả',r:'trả `[]`, không nhặt job gợi ý',tag:'auto',
+  steps:['`python -m jobpilot.cli crawl --query "java spring boot backend"` (4 từ)'],
+  exp:'0 hit + cảnh báo "try a shorter query". TopCV báo "Tuyển dụng **0** việc làm" rồi đổ 50 card **gợi ý** vào đúng container kết quả — job đầu là "Kế Toán Tổng Hợp".',pin:'test_topcv.py'},
+ {id:'TC-11-07',c:'WWR tách company khỏi title',r:'"Gusto, Inc." + "Business Money Engineering"',tag:'auto',
+  steps:['Crawl weworkremotely rồi xem title/company'],
+  exp:'Tách ở `": "` **đầu tiên**. Để nguyên thì tên công ty nằm trong mọi job title, phá luôn khoá dedup `(company, title)`.',pin:'test_weworkremotely.py'},
+ {id:'TC-11-08',c:'Ngày của feed đọc được',r:'RFC-822 và unix epoch đều ra ngày thật',tag:'auto',
+  steps:['Xem `posted_at` của job weworkremotely (RFC-822) và arbeitnow (epoch)'],
+  exp:'Cả hai **không null**. Feed mà mất `posted_at` thì không bao giờ được gắn 🔥 <48h và biến mất khỏi chart by-day — tức mất đúng thứ khiến feed đáng dùng.',pin:'test_crawler_unit.py'},
+ {id:'TC-11-09',c:'Nguồn feed không fetch trang chi tiết',r:'25 job = 1 request',tag:'auto',
+  steps:['Crawl weworkremotely với log INFO và đếm số request'],
+  exp:'Đúng **một** request cho mỗi feed. Feed đã có JD đầy đủ nên `needs_detail = False`.',pin:'test_weworkremotely.py'},
+ {id:'TC-11-10',c:'JSON không đi qua browser',r:'lỗi nói rõ nếu bị bọc `<pre>`',tag:'auto',
+  steps:['Truyền JSON đã bọc HTML vào `parse_json_feed`'],
+  exp:'Lỗi kèm 80 byte đầu, đủ để nhận ra ngay là trang lỗi HTML hay JSON bị Chromium bọc `<pre>`.',pin:'test_arbeitnow.py'},
+ {id:'TC-11-11',c:'Nguồn tier-2 hiện ra dù đã dùng Settings',r:'weworkremotely + arbeitnow có mặt',tag:'auto',
+  steps:['Với `config.local.yaml` cũ (chỉ có 5 source), GET `/crawl/setup`'],
+  exp:'Danh sách có **đủ 7** source, tier-2 `ready=true`. Trước đây overlay ghi đè cả list nên nguồn mới *vắng mặt* — không phải tắt, mà không tồn tại để bật.',pin:'test_config.py'},
+ {id:'TC-11-12',c:'`infer_level` match theo từ',r:'"internal" không thành intern',tag:'auto',
+  steps:['Xem `level` của các job remote senior có JD nhắc "internal"/"international"'],
+  exp:'Không bị gán `intern`. Substring từng làm một job senior của Stripe thành **internship**, rồi chảy thẳng vào chart by_level và bộ lọc.',pin:'test_crawler_unit.py'},
+ {id:'TC-11-13',c:'`max_pages` lưu được từ Settings',r:'round-trip, config.yaml không đổi',tag:'manual',
+  steps:['Đổi "Max pages per site" ở trang Settings rồi Save','Reload trang và kiểm tra hash `config.yaml`'],
+  exp:'Giá trị được giữ; `config.yaml` **byte-identical**.'},
+ {id:'TC-11-14',c:'robots chặn đúng nguồn đã loại',r:'Jobicy `/api/` → False',tag:'auto',
+  steps:['Chạy `RobotsPolicy(...).allowed("https://jobicy.com/api/v2/remote-jobs")`'],
+  exp:'`False`. Đọc **hết** robots.txt — dòng `Disallow: /api/` của Jobicy ở dòng 48, `head -40` làm nó trông thoáng.',pin:'test_crawler_unit.py'}
+]);
+
+P('12','ATS adapter — career page của công ty','Một adapter phủ mọi công ty dùng nền tảng đó. **Một "trang" ở đây là một công ty**, nên vòng lặp phân trang Phase 11 dùng lại nguyên vẹn.',[
+ {id:'TC-12-01',c:'Thêm công ty chỉ bằng 1 dòng config',r:'không phải viết code',tag:'manual',
+  steps:['Thêm một token vào `ats.greenhouse` trong `config.yaml`','Bật nguồn `greenhouse` ở trang Settings rồi crawl'],
+  exp:'Job của công ty đó vào DB. Token là slug trong URL careers page (`gitlab` của job-boards.greenhouse.io/gitlab).'},
+ {id:'TC-12-02',c:'Mỗi công ty là một request',r:'không fetch trang chi tiết',tag:'auto',
+  steps:['Crawl greenhouse với log INFO rồi đếm request'],
+  exp:'Đúng **một** request cho mỗi board (`content=true` trả JD đầy đủ), không có request per-job.',pin:'test_ats.py'},
+ {id:'TC-12-03',c:'Greenhouse unescape JD',r:'không còn `&lt;div&gt;` trong JD',tag:'auto',
+  steps:['Mở một job greenhouse và xem `description_md`'],
+  exp:'JD là văn bản đọc được. API double-encode nên lưu thẳng sẽ hiện tag thô cho người đọc và đưa markup như văn xuôi cho agent tailor.',pin:'test_ats.py'},
+ {id:'TC-12-04',c:'Lever: ngày mili-giây + tên công ty',r:'posted_at đúng, company không rỗng',tag:'auto',
+  steps:['Crawl lever rồi xem `posted_at` và `company`'],
+  exp:'`createdAt` 13 chữ số được đổi sang giây tại scraper (không nới guard epoch 9–11 chữ số). Tên công ty lấy từ slug trong `hostedUrl` vì payload Lever không bao giờ ghi tên.',pin:'test_ats.py'},
+ {id:'TC-12-05',c:'Lever JD đủ phần yêu cầu',r:'có cả `lists` và `additional`',tag:'auto',
+  steps:['Mở một job lever và tìm phần yêu cầu trong JD'],
+  exp:'JD gồm `description` + `lists` + `additional`. Chỉ lấy `description` là đưa cho tailor bài PR của công ty mà không có yêu cầu nào để CV đáp.',pin:'test_ats.py'},
+ {id:'TC-12-06',c:'Board token sai/hết hạn',r:'lỗi rõ, không im lặng thành 0 job',tag:'auto',
+  steps:['Đặt một token không tồn tại rồi crawl'],
+  exp:'Báo lỗi rõ ràng. Lever trả 404 dạng object thay vì mảng — parse dễ dãi sẽ đọc thành "công ty này không tuyển ai", và board đó chết âm thầm.',pin:'test_ats.py'},
+ {id:'TC-12-07',c:'Chưa khai báo công ty nào',r:'nói rõ "no boards configured"',tag:'auto',
+  steps:['Để `ats.greenhouse` rỗng rồi bật nguồn và crawl'],
+  exp:'Log nói **"no company boards configured"** chứ không phải cảnh báo 0-hit chung chung (đọc như "parser hỏng").',pin:'test_ats.py'},
+ {id:'TC-12-08',c:'Xếp hạng theo độ khớp query',r:'job sát đề lên đầu',tag:'auto',
+  steps:['Crawl greenhouse board lớn (gitlab) với query "backend engineer java", limit 6'],
+  exp:'6 job đầu là Backend Engineer thật. Trước khi có `rank_hits`, `limit` bị tiêu vào "AI Engineer" và 4 "Customer Success Engineer" — tất cả nhờ mỗi chữ *engineer*.',pin:'test_ats.py'},
+ {id:'TC-12-09',c:'Đăng lại nhiều thành phố',r:'gộp thành duplicates',tag:'manual',
+  steps:['Crawl lever/palantir rồi xem `duplicates` trong stats'],
+  exp:'Cùng một job đăng ở nhiều thành phố bị gộp theo `(company, normalized_title)`; chỉ job thật sự khác tên mới giữ riêng.'}
+]);
+
+P('13','ATS đọc được PDF không?','Build trả lời "compile được chưa"; phase này trả lời "máy đọc được không" — và cái thứ hai mới quyết định có ai đọc CV của bạn hay không.',[
+ {id:'TC-13-01',c:'CV tốt không bị báo lỗi oan',r:'ok=true, 0 finding',tag:'manual',
+  steps:['Mở CV Studio, bấm **Compile**','Xem panel readability ở cột phải'],
+  exp:'"An ATS can read this CV" và không có finding nào. Panel ghi số ký tự trích được.'},
+ {id:'TC-13-02',c:'Email không nằm trong text layer',r:'error + nói rõ parser thấy gì',tag:'auto',
+  steps:['Đổi email trong header thành địa chỉ khác với PDF đã build rồi check lại'],
+  exp:'Error `email_missing`, và message nêu **địa chỉ mà ATS sẽ gửi tới thay thế** — hữu ích hơn nhiều so với "thiếu email".',pin:'test_cv_ats.py'},
+ {id:'TC-13-03',c:'PDF không có text layer',r:'error duy nhất, không đẻ ra 8 lỗi phái sinh',tag:'auto',
+  steps:['Check một PDF ảnh (scan)'],
+  exp:'Đúng **một** error `no_text_layer`. Mọi check sau đó chỉ lặp lại cùng một sự thật.',pin:'test_cv_ats.py'},
+ {id:'TC-13-04',c:'Trình trích xuất yếu không tự bịa lỗi',r:'pypdf mất dấu cách → vẫn ok',tag:'auto',
+  steps:['Chạy check với `spacing_reliable=False` trên text đã mất hết dấu cách'],
+  exp:'Không có finding nào. **Bug thật đã gặp**: pypdf đọc một PDF Awesome-CV hoàn hảo thành `WorkExperience`/`FRESHERSOFTWAREENGINEER` và checker báo CV hỏng; pdfminer.six đọc đúng. Đổ lỗi cho tài liệu vì hạn chế của công cụ còn tệ hơn không kiểm tra.',pin:'test_cv_ats.py'},
+ {id:'TC-13-05',c:'Thiếu keyword không chặn Approve',r:'chỉ hiện gạch ngang',tag:'auto',
+  steps:['Compile CV tailored cho job có skill mà CV không có'],
+  exp:'Keyword thiếu hiện **gạch ngang**, không block. Chặn ở đây sẽ đẩy người ta dán skill không có vào CV — đúng thứ guardrail tailor sinh ra để ngăn.',pin:'test_cv_ats.py'},
+ {id:'TC-13-06',c:'Không cài được trình trích xuất',r:'"not checked", không phải "passed"',tag:'auto',
+  steps:['Gỡ `pdfminer.six` và `pypdf` rồi compile'],
+  exp:'`ats: null` và UI ghi rõ **chưa kiểm tra** kèm lệnh cài. "Không biết" và "đạt" là hai khẳng định khác nhau.',pin:'test_cv_api.py'},
+ {id:'TC-13-07',c:'Master CV không bị check keyword',r:'không có keyword nào bị đòi',tag:'auto',
+  steps:['Compile scope `master` và xem `ats.keywords_missing`'],
+  exp:'Rỗng. Master CV không nhắm job nào; đòi keyword ở đó là mời người dùng nhồi skill không có.',pin:'test_cv_api.py'}
+]);
+
+P('14','Tín hiệu chất lượng job','Giải thích `match_score` và gắn cờ tin có vấn đề. Thuần, không LLM. **Không cờ nào lọc bỏ job** — chỉ chú thích rồi để người quyết.',[
+ {id:'TC-14-01',c:'Điểm số có lý do kèm theo',r:'tooltip liệt kê stack khớp/không khớp',tag:'manual',
+  steps:['Mở trang Jobs, rê chuột lên thanh match của một job'],
+  exp:'Tooltip ghi `Mentions: Java, Backend` và `Missing: Spring Boot`. Trước đây 0.25 là bản án không kèm lý do.'},
+ {id:'TC-14-02',c:'Lời giải thích khớp với con số',r:'matched/tổng == match_score',tag:'auto',
+  steps:['So `len(matched)/len(stacks)` với `match_score` của cùng job'],
+  exp:'Bằng nhau (làm tròn 3 số). Nếu hai bên dùng luật khác nhau thì lời giải thích thành một điểm số thứ hai đang cạnh tranh.',pin:'test_quality.py'},
+ {id:'TC-14-03',c:'Job LinkedIn không có JD',r:'cờ `no_jd`',tag:'auto',
+  steps:['Xem badge của một job nguồn linkedin'],
+  exp:'Badge **NO JD**. Alert email không mang JD nên tailor không có gì để bám — biết trước còn hơn tới lúc tailor mới lộ.',pin:'test_quality.py'},
+ {id:'TC-14-04',c:'Tin đăng lâu ngày',r:'cờ `stale`, không bị ẩn',tag:'auto',
+  steps:['Xem job có `posted_at` cũ hơn `crawl.stale_days` (mặc định 45)'],
+  exp:'Badge **OLD** và job **vẫn nằm trong danh sách**. Cờ chú thích chứ không lọc.',pin:'test_quality.py'},
+ {id:'TC-14-05',c:'Không biết tuổi ≠ già',r:'`undated` tách khỏi `stale`',tag:'auto',
+  steps:['Xem job từ nguồn không công bố ngày (ITviec)'],
+  exp:'Badge **UNDATED**, không phải OLD. Nguồn không công bố ngày thì không được âm thầm bị coi là cũ.',pin:'test_quality.py'},
+ {id:'TC-14-06',c:'Job cũ trong DB cũng được gắn tín hiệu',r:'`cli backfill`, chạy lại → 0',tag:'auto',
+  steps:['`python -m jobpilot.cli backfill`','Chạy lại lần nữa'],
+  exp:'Lần đầu báo số row đã gắn, lần hai báo **0** (idempotent). Không có nó thì job cũ — nhất là LinkedIn, không bao giờ crawl lại — mãi mãi không có chú thích.',pin:'test_quality.py'}
+]);
+
+P('15','Nhắc follow-up sau khi nộp','Đơn thường **không bị từ chối, chỉ bị quên**. Nhịp nhắc hữu hạn và **không bao giờ tự gửi gì**.',[
+ {id:'TC-15-01',c:'Migration 0005',r:'lên Postgres sạch',tag:'manual',
+  steps:['`alembic upgrade head`'],
+  exp:'Thêm `applications.next_followup_at` + `followup_stage` + index, không lỗi.'},
+ {id:'TC-15-02',c:'Nộp thật thì bắt đầu đếm',r:'stage=first_nudge, có hạn',tag:'auto',
+  steps:['Apply một job (kênh email đã bật, hoặc portal)','Xem `followup_stage` của application'],
+  exp:'`first_nudge` với hạn **5 ngày làm việc** sau. Kênh portal/external cũng tính — bạn tự nộp thì nó cũng im lặng y hệt.',pin:'test_followup.py'},
+ {id:'TC-15-03',c:'Dry run không bị nhắc',r:'stage=done, hạn = null',tag:'auto',
+  steps:['Apply với `dry_run: true` rồi xem application'],
+  exp:'`done` và `next_followup_at = null`. Không có gì rời máy thì không có ai để nhắc — `NULL` thật thà hơn một cái hạn đã trôi qua.',pin:'test_followup.py'},
+ {id:'TC-15-04',c:'Nhịp có điểm dừng',r:'first → second → done',tag:'auto',
+  steps:['Bấm **I followed up** ba lần liên tiếp'],
+  exp:'`first_nudge` → `second_nudge` (hạn mới, rớt khỏi danh sách due) → `done` (hết hạn). Hai lá thư không hồi âm đã là câu trả lời.',pin:'test_followup.py'},
+ {id:'TC-15-05',c:'Không tự gửi bất cứ thứ gì',r:'chỉ hiện nhắc',tag:'manual',
+  steps:['Để một application tới hạn rồi mở trang Applications'],
+  exp:'Hiện card "N application worth chasing" — **không** email nào được gửi. Follow-up là thư gửi cho người đang cân nhắc mình (nguyên tắc 2).'},
+ {id:'TC-15-06',c:'Bỏ qua một đơn',r:'Let it go → done',tag:'auto',
+  steps:['Bấm **Let it go** trên một nhắc'],
+  exp:'Chuyển `done`, hết hiện. Dùng khi đã có hồi âm, bị từ chối, hoặc đổi ý.',pin:'test_followup.py'},
+ {id:'TC-15-07',c:'Nhắc rơi vào ngày làm việc',r:'không rơi T7/CN',tag:'auto',
+  steps:['Kiểm hạn của một đơn nộp hôm thứ Năm'],
+  exp:'Rơi vào thứ Năm tuần sau, không phải cuối tuần. Nhắc rơi Chủ nhật là nhắc bị đọc sáng thứ Hai với tâm trạng tệ hơn.',pin:'test_followup.py'},
+ {id:'TC-15-08',c:'So sánh thời gian không nổ',r:'chạy đúng trên cả SQLite lẫn Postgres',tag:'auto',
+  steps:['Chạy `is_due` với datetime naive'],
+  exp:'Không raise. SQLite trả naive còn Postgres trả aware — so thẳng thì **nổ ở backend này, chạy ngon ở backend kia**.',pin:'test_followup.py'}
+]);
+
+P('99','Hồi quy toàn hệ thống','Chạy trước mỗi lần commit. Test xanh không có nghĩa parser đúng — vẫn phải crawl thật một lần rồi đọc output.',[
+ {id:'TC-99-01',c:'Toàn bộ test suite',r:'428 passed',tag:'auto',
+  steps:['`pytest jobpilot/tests -q`'],
+  exp:'Tất cả pass, không skip bất thường.'},
+ {id:'TC-99-02',c:'Lint và format',r:'ruff sạch',tag:'auto',
+  steps:['`python -m ruff check jobpilot`'],
+  exp:'"All checks passed!".'},
+ {id:'TC-99-03',c:'Frontend build',r:'tsc + vite không lỗi',tag:'auto',
+  steps:['`cd web && npm run build`'],
+  exp:'Build xong, không lỗi TypeScript.'},
+ {id:'TC-99-04',c:'Crawl thật rồi **đọc output**',r:'job đúng ngành, JD có nội dung',tag:'manual',
+  steps:['Crawl thật lên Postgres','Mở vài job vừa crawl và đọc title/company/JD'],
+  exp:'Job đúng ngành nghề mong muốn, JD dài vài nghìn ký tự, `posted_at` không null, `apply_channel` hợp lý. Đây là bước bắt được nhiều bug nhất trong lịch sử dự án.'},
+ {id:'TC-99-05',c:'Đi hết funnel một lần',r:'crawl → shortlist → tailor → approve → apply',tag:'cred',
+  steps:['Chạy trọn một job từ lúc crawl tới lúc nộp (dry-run)'],
+  exp:'Không kẹt ở bước nào, mọi transition đều phản ánh trên cả dashboard lẫn DB.'},
+ {id:'TC-99-06',c:'Không rò rỉ dữ liệu cá nhân',r:'git sạch',tag:'manual',
+  steps:['`git status --short` và `git ls-files` sau khi chạy full flow'],
+  exp:'Không có CV, không có `out/`, không có `.env`, không có `config.local.yaml`, không có DB dump nào bị track.'}
+]);
+
+</script>
+<script>
+(function(){
+  const KEY='jobpilot-testcases-v1';
+  let state={};
+  try{state=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){state={}}
+  const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}};
+
+  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const md=s=>esc(s).replace(/`([^`]+)`/g,'<code>$1</code>');
+
+  const list=document.getElementById('list');
+  let all=[];
+
+  CASES.forEach(sec=>{
+    const s=document.createElement('section');
+    s.innerHTML='<div class="sec-head"><span class="sec-num">PHASE '+esc(sec.num)+'</span><h2>'+esc(sec.title)+'</h2></div>'
+      +(sec.note?'<p class="sec-note">'+md(sec.note)+'</p>':'');
+    sec.items.forEach(it=>{
+      const el=document.createElement('article');
+      el.className='case'; el.dataset.id=it.id; el.dataset.s=state[it.id]?.s||'';
+      const tag=it.tag==='auto'?'<span class="tag auto">tự động</span>'
+              :it.tag==='cred'?'<span class="tag cred">cần credential</span>':'<span class="tag">'+esc(it.tag||'thủ công')+'</span>';
+      el.innerHTML=
+        '<div class="row">'
+        + '<span class="id">'+esc(it.id)+'</span>'
+        + '<button class="chal" aria-expanded="false"><span class="c">'+md(it.c)+'</span>'
+        +   '<span class="dots"></span><span class="r">'+md(it.r)+'</span></button>'
+        + tag
+        + '<span class="marks">'
+        +   '<button class="mk p" title="Đạt" aria-pressed="false">✓</button>'
+        +   '<button class="mk f" title="Lỗi" aria-pressed="false">✕</button>'
+        + '</span></div>'
+        + '<div class="body">'
+        +   '<h4>Các bước</h4><ol>'+it.steps.map(x=>'<li>'+md(x)+'</li>').join('')+'</ol>'
+        +   '<h4>Kết quả bắt buộc</h4><div class="exp">'+md(it.exp)+'</div>'
+        +   (it.pin?'<h4>Test ghim</h4><div><code>'+esc(it.pin)+'</code></div>':'')
+        +   '<textarea class="note" placeholder="Ghi chú khi lỗi: thấy gì, log nào…"></textarea>'
+        + '</div>';
+
+      const body=el.querySelector('.body'), chal=el.querySelector('.chal');
+      const bp=el.querySelector('.mk.p'), bf=el.querySelector('.mk.f'), nt=el.querySelector('.note');
+      nt.value=state[it.id]?.n||'';
+      const sync=()=>{const v=state[it.id]?.s||'';el.dataset.s=v;
+        bp.setAttribute('aria-pressed',v==='pass');bf.setAttribute('aria-pressed',v==='fail');};
+      sync();
+      chal.addEventListener('click',()=>{el.classList.toggle('open');chal.setAttribute('aria-expanded',el.classList.contains('open'))});
+      const set=v=>{const cur=state[it.id]?.s;state[it.id]={s:cur===v?'':v,n:nt.value};sync();save();tally()};
+      bp.addEventListener('click',()=>set('pass'));
+      bf.addEventListener('click',()=>{set('fail');if(state[it.id].s==='fail'){el.classList.add('open');nt.focus()}});
+      nt.addEventListener('input',()=>{state[it.id]={s:state[it.id]?.s||'',n:nt.value};save()});
+      s.appendChild(el); all.push({el,it});
+    });
+    list.appendChild(s);
+  });
+
+  const $=id=>document.getElementById(id);
+  function tally(){
+    let p=0,f=0;all.forEach(({it})=>{const v=state[it.id]?.s;if(v==='pass')p++;else if(v==='fail')f++});
+    const n=all.length,t=n-p-f;
+    $('c-pass').textContent=p;$('c-fail').textContent=f;$('c-todo').textContent=t;
+    $('g-pass').style.width=(p/n*100)+'%';$('g-fail').style.width=(f/n*100)+'%';$('g-todo').style.width=(t/n*100)+'%';
+  }
+  $('m-total').textContent=all.length;
+  $('m-auto').textContent=all.filter(x=>x.it.tag==='auto').length;
+  tally();
+
+  let filter='all';
+  const btns={all:$('f-all'),todo:$('f-todo'),fail:$('f-fail')};
+  function applyFilter(f){
+    filter=f;Object.entries(btns).forEach(([k,b])=>b.setAttribute('aria-pressed',k===f));
+    all.forEach(({el,it})=>{const v=state[it.id]?.s||'';
+      const show=f==='all'||(f==='todo'&&!v)||(f==='fail'&&v==='fail');
+      el.classList.toggle('hidden',!show)});
+  }
+  Object.entries(btns).forEach(([k,b])=>b.addEventListener('click',()=>applyFilter(k)));
+
+  let open=false;
+  $('t-open').addEventListener('click',()=>{open=!open;
+    all.forEach(({el})=>{el.classList.toggle('open',open);el.querySelector('.chal').setAttribute('aria-expanded',open)})});
+
+  $('t-reset').addEventListener('click',()=>{
+    if(!confirm('Xoá toàn bộ đánh dấu và ghi chú?'))return;
+    state={};save();all.forEach(({el,it})=>{el.dataset.s='';el.querySelector('.note').value='';
+      el.querySelector('.mk.p').setAttribute('aria-pressed','false');el.querySelector('.mk.f').setAttribute('aria-pressed','false')});
+    tally();applyFilter(filter);});
+
+  $('t-copy').addEventListener('click',async()=>{
+    let p=0,f=[],t=[];
+    all.forEach(({it})=>{const v=state[it.id]?.s;
+      if(v==='pass')p++;else if(v==='fail')f.push('- **'+it.id+'** '+it.c+(state[it.id].n?' — '+state[it.id].n:''));else t.push(it.id)});
+    const out=['# JobPilot — kết quả checklist','',
+      '- Đạt: '+p+'/'+all.length,'- Lỗi: '+f.length,'- Chưa chạy: '+t.length,'',
+      f.length?'## Case lỗi\n'+f.join('\n'):'## Không có case lỗi',
+      '',t.length?'## Chưa chạy\n'+t.join(', '):''].join('\n');
+    try{await navigator.clipboard.writeText(out);$('t-copy').textContent='Đã chép ✓';
+      setTimeout(()=>$('t-copy').textContent='Chép báo cáo',1600)}catch(e){alert(out)}
+  });
+})();
+</script>
+</body>
+</html>

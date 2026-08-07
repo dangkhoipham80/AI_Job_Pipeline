@@ -123,6 +123,12 @@ export const api = {
   applications: (result?: string) =>
     req<Application[]>(`/applications${qs({ result })}`),
   applySettings: () => req<ApplySettings>("/applications/settings"),
+  /** Applications whose next follow-up has come due. Read-only: nothing is sent. */
+  followups: () => req<Application[]>("/applications/followups"),
+  markFollowedUp: (id: number) =>
+    req<Application>(`/applications/${id}/followed-up`, { method: "POST" }),
+  stopFollowups: (id: number) =>
+    req<Application>(`/applications/${id}/stop-followups`, { method: "POST" }),
 
   /* Orchestration (Phase 8). Crawling can't answer inside a request, so it
      returns a task and progress arrives over the WebSocket. */

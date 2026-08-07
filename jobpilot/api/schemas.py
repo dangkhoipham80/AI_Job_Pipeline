@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from jobpilot.apply.followup import describe, is_due
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job, JobStatus
 
@@ -32,6 +33,9 @@ class JobOut(BaseModel):
     crawled_at: datetime | None
     # Which crawl discovered this job (null for hand-added ones).
     run_id: int | None = None
+    # Why the score is what it is, and whether the posting looks worth
+    # answering. Advisory only — nothing here filters a job out.
+    quality: dict | None = None
 
 
 class JobDetailOut(JobOut):
@@ -97,6 +101,9 @@ class CvCompileOut(BaseModel):
     #: None when the build succeeded but the page count couldn't be read.
     pages: int | None
     pdf_url: str
+    # What a parser gets back out of the PDF. `None` means "not checked" (pypdf
+    # missing), which the UI must not render as a pass.
+    ats: dict | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -171,6 +178,11 @@ class ApplicationOut(BaseModel):
     cv_pdf_path: str | None
     apply_target: str | None
     meta: dict = {}
+    # Where this application is in the follow-up cadence, and when it's due.
+    followup_stage: str | None = None
+    next_followup_at: datetime | None = None
+    followup_due: bool = False
+    followup_hint: str = ""
 
     @classmethod
     def from_row(cls, app: Any, job: Job) -> "ApplicationOut":
@@ -188,6 +200,10 @@ class ApplicationOut(BaseModel):
             cv_pdf_path=app.cv_pdf_path,
             apply_target=job.apply_target,
             meta=app.meta or {},
+            followup_stage=app.followup_stage,
+            next_followup_at=app.next_followup_at,
+            followup_due=is_due(app.next_followup_at),
+            followup_hint=describe(app.followup_stage),
         )
 
 

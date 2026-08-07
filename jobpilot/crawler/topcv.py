@@ -15,6 +15,7 @@ human-in-the-loop, never auto-submitted (principle 2).
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 
@@ -26,6 +27,8 @@ from jobpilot.crawler.jsonld import parse_job_posting
 from jobpilot.crawler.text import clean_text, el_text, first_match, strip_query
 from jobpilot.crawler.types import RawJob, SearchHit
 from jobpilot.crawler.vietnam import clean_city, parse_salary
+
+log = logging.getLogger(__name__)
 
 BASE_URL = "https://www.topcv.vn"
 
@@ -42,6 +45,10 @@ _SPECIALTY_GROUP_RE = re.compile(r"chuyên môn|specialit|skill", re.I)
 
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
 
+# "Tuyển dụng 86 việc làm Java Spring Boot [Update 02/08/2026]" — the heading
+# states how many results the search actually found.
+_RESULT_COUNT_RE = re.compile(r"tuyển dụng\s+([\d.,]+)\s+việc làm", re.I)
+
 
 def _slug(query: str) -> str:
     """ "Java Spring Boot" → "java-spring-boot" for the search path.
@@ -53,6 +60,18 @@ def _slug(query: str) -> str:
     folded = unicodedata.normalize("NFD", query.lower())
     ascii_only = "".join(c for c in folded if unicodedata.category(c) != "Mn")
     return _SLUG_STRIP_RE.sub("-", ascii_only).strip("-") or "java"
+
+
+def _declared_result_count(soup: BeautifulSoup) -> int | None:
+    """How many results the page says it found, or None if it doesn't say.
+
+    None means "unknown", not "zero" — if TopCV rewords the heading the parser
+    falls back to trusting the cards rather than silently returning nothing.
+    """
+    match = _RESULT_COUNT_RE.search(el_text(soup.select_one("h1")))
+    if not match:
+        return None
+    return int(match.group(1).replace(".", "").replace(",", ""))
 
 
 def _title_anchor(card: Tag) -> Tag | None:
@@ -110,8 +129,8 @@ def _card_location(card: Tag) -> str | None:
 class TopCVScraper(BaseScraper):
     source = "topcv"
 
-    def search_url(self, query: str) -> str:
-        """``/tim-viec-lam-<slug>`` — the keyword goes in the *path*.
+    def search_url(self, query: str, page: int = 1) -> str:
+        """``/tim-viec-lam-<slug>?page=N`` — the keyword goes in the *path*.
 
         ``/tim-viec-lam-it?keyword=java`` looks like a search and is not one:
         TopCV ignores the query string and serves the generic IT category. It
@@ -120,8 +139,13 @@ class TopCVScraper(BaseScraper):
         the 84 Java ones, and every single one is then dropped by the stack filter
         for scoring 0. A silently-ignored parameter is worse than an error: the
         crawl reports success and quietly delivers the wrong jobs.
+
+        ``page`` is the exception: it *is* honoured (verified live — page 1 and
+        page 2 of the same search share zero job ids), and running off the end
+        redirects to a page with no cards, which stops the loop.
         """
-        return f"{BASE_URL}/tim-viec-lam-{_slug(query or 'java')}"
+        url = f"{BASE_URL}/tim-viec-lam-{_slug(query or 'java')}"
+        return url if page <= 1 else f"{url}?page={page}"
 
     def _native_id(self, card_id: str, url: str) -> str:
         """TopCV's numeric job id, from the card attribute or the URL path."""
@@ -136,8 +160,24 @@ class TopCVScraper(BaseScraper):
         The card already carries title, company, city, salary and required
         experience, so all of it is passed forward: a posting whose detail fetch
         fails still lands as a usable row.
+
+        A search that found nothing is **not** an empty page. TopCV answers
+        "Tuyển dụng 0 việc làm Java Spring Boot Backend" and then fills the same
+        ``.job-list-search-result`` container with 50 recommended jobs — verified
+        live, the first one being "Kế Toán Tổng Hợp" (a general accountant).
+        There is no structural way to tell those from real results, so the
+        declared count is what decides. Without it the crawl reports success,
+        spends its whole budget fetching accountants, and hands the stack filter
+        the job of noticing.
         """
         soup = BeautifulSoup(html, "html.parser")
+        if _declared_result_count(soup) == 0:
+            log.warning(
+                "[topcv] the search page reports 0 results — the cards below it are "
+                "recommendations, not matches; try a shorter query"
+            )
+            return []
+
         hits: list[SearchHit] = []
         seen: set[str] = set()
 

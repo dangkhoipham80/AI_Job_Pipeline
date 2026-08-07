@@ -11,8 +11,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 
 from jobpilot.config import Config
+from jobpilot.crawler.quality import Quality, flags_for, stack_coverage
 from jobpilot.crawler.text import clean_text, dedup_key, html_to_markdown
 from jobpilot.crawler.types import RawJob
 from jobpilot.timeutil import VN_TZ, vn_now  # re-exported for callers/tests
@@ -38,6 +40,9 @@ _UNIT_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30}
 _UNIT_SECONDS = {"minute": 60, "hour": 3600}
 _VI_UNIT = {"phút": "minute", "giờ": "hour", "ngày": "day", "tuần": "week", "tháng": "month"}
 _ABS_FORMATS = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y")
+# Unix seconds: 1e9 is 2001, 1e11 is the year 5138 — wide enough for any real
+# posting, narrow enough that a stray number is not mistaken for a timestamp.
+_EPOCH_RE = re.compile(r"\d{9,11}")
 
 
 def _delta_from(value: int, unit: str) -> timedelta:
@@ -69,11 +74,25 @@ def parse_posted_at(raw: str | None, now: datetime | None = None) -> datetime | 
     if m:
         return now - _delta_from(int(m.group(1)), _VI_UNIT[m.group(2)])
 
+    # Unix seconds, as JSON job APIs publish them. Bounded to 9-11 digits on
+    # purpose: an unbounded int() would read a bare year ("2026") as an epoch
+    # and date the job to January 1970, which is worse than not knowing.
+    if _EPOCH_RE.fullmatch(s):
+        return datetime.fromtimestamp(int(s), tz=VN_TZ)
+
     # ISO first (may carry its own tz), then day-first formats.
     try:
         dt = datetime.fromisoformat(s.replace("z", "+00:00"))
         return dt if dt.tzinfo else dt.replace(tzinfo=VN_TZ)
     except ValueError:
+        pass
+    # RFC-822/2822 — what every RSS feed publishes ("Wed, 22 Jul 2026 07:00:51
+    # +0000"). Without this a feed source lands with posted_at=None, which is not
+    # a harmless gap: the job can never be flagged fresh (<48h), it drops out of
+    # the dashboard's by-day chart, and freshness is the whole point of a feed.
+    try:
+        return parsedate_to_datetime(clean_text(raw))
+    except (TypeError, ValueError):
         pass
     for fmt in _ABS_FORMATS:
         try:
@@ -86,19 +105,37 @@ def parse_posted_at(raw: str | None, now: datetime | None = None) -> datetime | 
 # --------------------------------------------------------------------------- #
 # level inference + matching
 # --------------------------------------------------------------------------- #
+# Seniority words, matched as whole words and in priority order (intern and
+# fresher before senior, so "Senior mentor for interns" is not an internship).
+#
+# Whole words, not substrings: "intern" appears inside "internal" and
+# "international", which every third JD says — that quietly filed Stripe's
+# "Backend Engineer, AI Security" as an *internship*, and "leadership skills"
+# made mid-level roles senior. Wrong data that looks right is the worst kind:
+# it flows straight into the dashboard's level chart and the level filter.
+#
+# And bare "intern" counts only in the *title*: it is an ordinary word in prose
+# ("we confer internally", German "beraten wir uns intern") but never an
+# accident in a job title. "Internship"/"thực tập" are unambiguous anywhere.
+_BARE_INTERN_RE = re.compile(r"\binterns?\b", re.I)
+_LEVEL_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("intern", r"\b(?:internships?|thực tập)\b"),
+    ("fresher", r"\bfreshers?\b"),
+    ("junior", r"\bjuniors?\b"),
+    ("senior", r"\b(?:senior|lead|principal|staff)\b|trưởng nhóm"),
+    ("middle", r"\b(?:middle|mid-level|mid level)\b"),
+)
+_LEVEL_RES = tuple((level, re.compile(pat, re.I)) for level, pat in _LEVEL_PATTERNS)
+
+
 def infer_level(title: str, description: str = "") -> str | None:
     """Best-effort seniority from title/JD (intern/fresher checked before senior)."""
-    text = f"{title} {description}".lower()
-    if any(w in text for w in ("intern", "internship", "thực tập")):
+    if _BARE_INTERN_RE.search(title or ""):
         return "intern"
-    if "fresher" in text:
-        return "fresher"
-    if "junior" in text:
-        return "junior"
-    if any(w in text for w in ("senior", " lead", "principal", "staff", "trưởng nhóm")):
-        return "senior"
-    if any(w in text for w in ("middle", "mid-level", "mid level")):
-        return "middle"
+    text = f"{title} {description}"
+    for level, pattern in _LEVEL_RES:
+        if pattern.search(text):
+            return level
     return None
 
 
@@ -165,6 +202,20 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
     fresh = bool(posted_at and (now - posted_at) <= timedelta(hours=cfg.crawl.fresh_hours))
     haystack = " ".join([raw.title, " ".join(raw.skills), desc_md])
     score = stack_match_score(haystack, cfg.crawl.stacks)
+    # The same arithmetic the score comes from, reported instead of hidden: a
+    # bare 0.25 is a verdict with no reasons attached.
+    matched, missing = stack_coverage(haystack, cfg.crawl.stacks)
+    quality = Quality(
+        matched=matched,
+        missing=missing,
+        flags=flags_for(
+            description_md=desc_md,
+            posted_at=posted_at,
+            needs_jd=bool(raw.extra.get("needs_jd")),
+            now=now,
+            stale_days=cfg.crawl.stale_days,
+        ),
+    )
 
     payload = {
         # Scraper-specific extras first, so a stray key can never shadow a
@@ -187,6 +238,7 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
         "crawled_at": now.isoformat(),
         "match_score": score,
         "is_fresh": fresh,
+        "quality": quality.as_dict(),
     }
     return NormalizedJob(
         id=raw.id,

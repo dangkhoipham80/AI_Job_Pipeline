@@ -7,7 +7,15 @@ app:
 
 crawl:
   jobs_per_site: 10           # "crawl ~10 job/site" per the MVP spec
+  # How many listing pages to walk per site to reach jobs_per_site. A ceiling,
+  # not a target: TopCV puts 50 cards on page 1 and never needs a second one,
+  # while VietnamWorks lazy-loads ~9-20 and does. The loop also stops on its own
+  # if a site ignores the page parameter and re-serves results already seen.
+  max_pages: 5
   fresh_hours: 48             # jobs newer than this get the 🔥 flag
+  # Postings older than this are *flagged* as possibly filled — never hidden.
+  # ATS boards legitimately carry open evergreen reqs for weeks, so be generous.
+  stale_days: 45
   rate_limit_seconds: [2.0, 5.0]   # polite delay range between requests
   match_score_min: 0.30       # min match to surface a job on the dashboard
   # Stack alerts — crawler filters jobs to these (Java backend focus for now).
@@ -34,7 +42,32 @@ sources:
   # linkedin.com/robots.txt disallows automated access to its job pages.
   # Needs IMAP_* in .env. See CLAUDE.md "LinkedIn qua Job Alerts".
   - { key: linkedin,     tier: 1, enabled: true }
-  # tier2/tier3 (careerviet, glints, remoteok, ATS adapters...) added in later phases.
+  # Tier 2 — official feeds. No browser, no anti-bot, full JD in one request,
+  # and robots.txt on both allows it. These are remote/worldwide roles, so turn
+  # them off if you only want Vietnam. Other remote boards were checked and
+  # rejected — see CLAUDE.md "Nguồn tier-2 đã loại" before adding one.
+  - { key: weworkremotely, tier: 2, enabled: true }   # RSS, one feed per category
+  - { key: arbeitnow,      tier: 2, enabled: true }   # JSON API, real ?page=
+  # Tier 3 — company career pages. One adapter per ATS platform reaches every
+  # company on it, so adding a company is one word in `ats:` below (no code).
+  # Off by default: which companies you follow is a choice only you can make.
+  - { key: greenhouse,     tier: 3, enabled: false }
+  - { key: lever,          tier: 3, enabled: false }
+
+# Company boards to read for the tier-3 ATS sources above. A token is the
+# company's slug in its careers-page URL — the `gitlab` in
+# job-boards.greenhouse.io/gitlab, or the `palantir` in jobs.lever.co/palantir.
+# Each board costs one request per crawl, so a long list is a slow crawl.
+# The examples below were verified live; replace them with companies you'd
+# actually work for.
+ats:
+  greenhouse:
+    - gitlab          # 184 jobs, remote-heavy
+    - grafanalabs     # 142 jobs
+    - elastic         # 233 jobs
+  lever:
+    - palantir        # 302 jobs
+    - spotify         # 105 jobs
 
 apply:
   # Email is the only full-auto channel. Three independent gates, all on by

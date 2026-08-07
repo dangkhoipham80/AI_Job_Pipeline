@@ -10,22 +10,35 @@ import logging
 
 from jobpilot.config import Config
 from jobpilot.crawler.base import BaseScraper, Fetcher
+from jobpilot.crawler.arbeitnow import ArbeitnowScraper
+from jobpilot.crawler.ats import GreenhouseScraper, LeverScraper
 from jobpilot.crawler.itviec import ITViecScraper
 from jobpilot.crawler.linkedin import LinkedInAlertsScraper
 from jobpilot.crawler.ratelimit import RateLimiter
 from jobpilot.crawler.robots import RobotsPolicy
 from jobpilot.crawler.topcv import TopCVScraper
 from jobpilot.crawler.vietnamworks import VietnamWorksScraper
+from jobpilot.crawler.weworkremotely import WeWorkRemotelyScraper
 
 log = logging.getLogger(__name__)
 
 SCRAPERS: dict[str, type[BaseScraper]] = {
+    # -- tier 1: Vietnamese job boards ------------------------------------- #
     "itviec": ITViecScraper,
     # Reads your mailbox for LinkedIn Job Alerts — never crawls LinkedIn.
     "linkedin": LinkedInAlertsScraper,
     "topcv": TopCVScraper,
     "vietnamworks": VietnamWorksScraper,
+    # -- tier 2: official feeds (no browser, no anti-bot) ------------------ #
+    "arbeitnow": ArbeitnowScraper,
+    "weworkremotely": WeWorkRemotelyScraper,
+    # -- tier 3: company career pages, one adapter per ATS platform -------- #
+    "greenhouse": GreenhouseScraper,
+    "lever": LeverScraper,
 }
+
+#: Sources whose job list comes from `ats.<key>` in config rather than a query.
+ATS_SOURCES = ("greenhouse", "lever")
 
 
 def build_scrapers(
@@ -37,8 +50,11 @@ def build_scrapers(
 ) -> list[BaseScraper]:
     """Instantiate scrapers for every enabled+known source in config.
 
-    A single ``fetcher`` (e.g. one Playwright session) can be shared across all
-    scrapers. Rate limit + robots policy come from config.
+    ``fetcher`` overrides every scraper's own choice and exists for tests, which
+    inject an offline map. Leave it ``None`` in production: each scraper then
+    picks the right transport for its source, and a browser session shared with
+    a feed source would hand its parser ``<pre>``-wrapped JSON. Rate limit,
+    paging depth and robots policy come from config.
 
     ``only`` narrows the set for a single run without touching config — that is
     how the dashboard lets you crawl one site without disabling the others. It
@@ -57,11 +73,15 @@ def build_scrapers(
         if cls is None:
             log.warning("no scraper registered for source %r — skipping", src.key)
             continue
-        scrapers.append(
-            cls(
-                fetcher=fetcher,
-                rate_limiter=RateLimiter(low, high),
-                robots=RobotsPolicy(DEFAULT_USER_AGENT) if respect_robots else None,
-            )
-        )
+        kwargs = {
+            "fetcher": fetcher,
+            "rate_limiter": RateLimiter(low, high),
+            "robots": RobotsPolicy(DEFAULT_USER_AGENT) if respect_robots else None,
+            "max_pages": cfg.crawl.max_pages,
+        }
+        # An ATS source has no search query — its "pages" are the company boards
+        # you listed, so it needs that list rather than a page ceiling.
+        if src.key in ATS_SOURCES:
+            kwargs["boards"] = cfg.ats.boards_for(src.key)
+        scrapers.append(cls(**kwargs))
     return scrapers

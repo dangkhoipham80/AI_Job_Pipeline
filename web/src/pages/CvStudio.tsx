@@ -4,12 +4,13 @@ import { Plus, Save } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { Button, Card, CardBody, Select, Skeleton } from "@/components/ui";
+import { AtsPanel } from "@/components/cv/AtsPanel";
 import { MarkupLegend } from "@/components/cv/fields";
 import { HeaderEditor } from "@/components/cv/HeaderEditor";
 import { PdfPreview } from "@/components/cv/PdfPreview";
 import { SectionEditor } from "@/components/cv/SectionEditor";
 import { VersionHistory } from "@/components/cv/VersionHistory";
-import type { CvDocument, CvSection, CvSectionType } from "@/types";
+import type { AtsReport, CvDocument, CvSection, CvSectionType } from "@/types";
 
 const NEW_SECTION: Record<CvSectionType, () => CvSection> = {
   paragraph: () => ({ type: "paragraph", key: "summary", title: "Summary", enabled: true, text: "", small: true }),
@@ -38,6 +39,8 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
   const [compiledAt, setCompiledAt] = useState(0);
   const [pages, setPages] = useState<number | null>(null);
   const [buildError, setBuildError] = useState<string | null>(null);
+  // undefined = never compiled this session; null = compiled but not checked.
+  const [ats, setAts] = useState<AtsReport | null | undefined>(undefined);
 
   // Adopt the server document whenever a different version arrives.
   useEffect(() => {
@@ -74,10 +77,12 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
     try {
       const res = await api.compileCv(scope);
       setPages(res.pages);
+      setAts(res.ats);
       setCompiledAt(Date.now());
     } catch (e) {
       setBuildError(e instanceof Error ? e.message : "Compile failed");
       setPages(null);
+      setAts(undefined);
     } finally {
       setCompiling(false);
     }
@@ -165,6 +170,11 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
             compiledAt={compiledAt}
             onCompile={compile}
           />
+          {ats !== undefined && (
+            <Card className="p-4">
+              <AtsPanel report={ats} />
+            </Card>
+          )}
           <VersionHistory
             versions={versions.data}
             current={savedVersion}

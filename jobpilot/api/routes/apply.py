@@ -23,6 +23,7 @@ from jobpilot.api.deps import get_db, require_token
 from jobpilot.api.schemas import ApplicationOut, ApplyIn, FailureIn, JobDetailOut, TaskOut
 from jobpilot.api.ws import manager
 from jobpilot.apply import dispatcher
+from jobpilot.apply.followup import due_applications, mark_followed_up, stop_followups
 from jobpilot.apply.letter import LetterEngine, default_letter_engine
 from jobpilot.config import get_config, get_secrets
 from jobpilot.orchestrator import TaskBusy, apply_body, queue
@@ -106,6 +107,40 @@ def list_applications(
         query = query.filter(Application.result == result)
     rows = query.order_by(Application.id.desc()).limit(limit).all()
     return [ApplicationOut.from_row(app, job) for app, job in rows]
+
+
+@board.get("/followups", response_model=list[ApplicationOut])
+def list_followups(db: Session = Depends(get_db), limit: int = 50) -> list[ApplicationOut]:
+    """Applications whose next follow-up has come due, oldest first.
+
+    Read-only on purpose. Nothing is sent from here: a follow-up is a message to
+    a person deciding about you, and mail that leaves the machine without you
+    seeing it is exactly what principle 2 forbids.
+    """
+    rows = []
+    for app in due_applications(db, limit=limit):
+        job = db.get(Job, app.job_id)
+        if job is not None:
+            rows.append(ApplicationOut.from_row(app, job))
+    return rows
+
+
+@board.post("/{application_id}/followed-up", response_model=ApplicationOut)
+def followed_up(application_id: int, db: Session = Depends(get_db)) -> ApplicationOut:
+    """You sent the nudge — advance the cadence (or end it)."""
+    app = mark_followed_up(db, application_id)
+    if app is None:
+        raise HTTPException(status_code=404, detail="application not found")
+    return ApplicationOut.from_row(app, db.get(Job, app.job_id))
+
+
+@board.post("/{application_id}/stop-followups", response_model=ApplicationOut)
+def stop_followup(application_id: int, db: Session = Depends(get_db)) -> ApplicationOut:
+    """Let one go — after a reply, a rejection, or a change of heart."""
+    app = stop_followups(db, application_id)
+    if app is None:
+        raise HTTPException(status_code=404, detail="application not found")
+    return ApplicationOut.from_row(app, db.get(Job, app.job_id))
 
 
 @board.get("/settings")

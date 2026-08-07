@@ -15,9 +15,10 @@ from jobpilot.api.deps import get_db, require_token
 from jobpilot.api.schemas import CvCompileOut, CvDocumentOut, CvVersionDetailOut, CvVersionOut
 from jobpilot.api.ws import manager
 from jobpilot.cv import store
-from jobpilot.cv.compile import build_dir, compile_document
+from jobpilot.cv.compile import build_dir, check_build, compile_document
 from jobpilot.cv.render import list_templates, render_tex_snapshot
 from jobpilot.cv.schema import CvDocument
+from jobpilot.store.models import Job
 from jobpilot.tailor.build import BuildError
 
 router = APIRouter(prefix="/cv", tags=["cv"], dependencies=[Depends(require_token)])
@@ -68,14 +69,39 @@ async def compile_cv(scope: str, db: Session = Depends(get_db)) -> CvCompileOut:
         result = compile_document(doc, scope)
     except BuildError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Compiling answers "does this build?". It does not answer "can a machine
+    # read what it built?", and the second is what decides whether a human ever
+    # sees the CV. Checked here, while there is still a build to fix.
+    report = check_build(result, doc, _job_skills(db, scope))
     out = CvCompileOut(
         scope=scope,
         version=row.version if row else 0,
         pages=result.pages,
         pdf_url=f"/cv/{scope}/pdf",
+        ats=report.as_dict() if report else None,
     )
-    await manager.broadcast({"type": "cv_compiled", "scope": scope, "pages": result.pages})
+    await manager.broadcast(
+        {
+            "type": "cv_compiled",
+            "scope": scope,
+            "pages": result.pages,
+            "ats_ok": report.ok if report else None,
+        }
+    )
     return out
+
+
+def _job_skills(db: Session, scope: str) -> list[str] | None:
+    """Skills of the job a tailored CV targets, for the keyword coverage check.
+
+    A Master CV answers to no job, so it gets no keyword check: reporting
+    "missing keyword" against nothing invites padding the CV with skills you
+    don't have, which is the exact thing the tailor guardrail exists to stop.
+    """
+    if scope == store.MASTER_SCOPE:
+        return None
+    job = db.get(Job, scope)
+    return list((job.payload or {}).get("skills") or []) if job else None
 
 
 @router.get("/{scope}/pdf")

@@ -11,6 +11,16 @@ export type JobStatus =
   | "FAILED"
   | "SKIPPED";
 
+/** Why a job scored what it scored, and whether the posting looks live. */
+export interface JobQuality {
+  /** Configured stacks this job mentions. */
+  matched: string[];
+  /** Configured stacks it doesn't. */
+  missing: string[];
+  /** Advisory only: no_jd | thin_jd | stale | undated. Never hides a job. */
+  flags: string[];
+}
+
 export interface Job {
   id: string;
   source: string;
@@ -28,6 +38,8 @@ export interface Job {
   crawled_at: string | null;
   /** Which crawl discovered this job (null when added by hand). */
   run_id: number | null;
+  /** Advisory: why the score, and whether the posting looks live. */
+  quality: JobQuality | null;
 }
 
 export interface JobDetail extends Job {
@@ -147,12 +159,33 @@ export interface CvVersionDetail extends CvVersion {
   tex: string;
 }
 
+/** One thing a parser could not recover from the PDF, plus how to fix it. */
+export interface AtsFinding {
+  level: "error" | "warning";
+  code: string;
+  message: string;
+  fix: string;
+}
+
+/** What an applicant tracking system gets back out of the compiled PDF. */
+export interface AtsReport {
+  ok: boolean;
+  chars: number;
+  /** Which extractor read the PDF — findings mean less from a weak one. */
+  engine: string;
+  findings: AtsFinding[];
+  keywords_found: string[];
+  keywords_missing: string[];
+}
+
 export interface CvCompileResult {
   scope: string;
   version: number;
   /** Null when the build worked but the page count couldn't be read. */
   pages: number | null;
   pdf_url: string;
+  /** `null` means not checked (no PDF text extractor installed), not passed. */
+  ats: AtsReport | null;
 }
 
 /* Tailor + CV Review (Phase 5) — mirrors jobpilot/tailor/{schema,diff}.py ---- */
@@ -253,6 +286,11 @@ export interface Application {
   cv_pdf_path: string | null;
   apply_target: string | null;
   meta: { email?: EmailSummary; handoff?: HandoffSummary };
+  /** Where this sits in the follow-up cadence: first_nudge | second_nudge | done. */
+  followup_stage: string | null;
+  next_followup_at: string | null;
+  followup_due: boolean;
+  followup_hint: string;
 }
 
 export interface ApplySettings {
@@ -344,6 +382,8 @@ export interface Settings {
   app: { timezone: string; edit_max_rounds: number };
   crawl: {
     jobs_per_site: number;
+    /** Listing pages walked per site to reach jobs_per_site. A ceiling. */
+    max_pages: number;
     fresh_hours: number;
     match_score_min: number;
     stacks: string[];

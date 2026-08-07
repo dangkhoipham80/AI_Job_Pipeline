@@ -12,7 +12,9 @@ Hai lớp:
 
 - `PLAN.md` — kiến trúc, data model, roadmap, quyết định đã chốt.
 - `SKILL.md` — quy tắc tailor CV, **guardrail chống bịa**.
-- File này — commands + conventions.
+- `PHASES.md` — nhật ký từng phase (quyết định + bug chỉ lộ ra khi chạy thật). Đọc
+  phần của vùng code mình sắp đụng, không cần đọc hết.
+- File này — commands + conventions + nợ kỹ thuật đang còn.
 
 ## Nguyên tắc bắt buộc (đọc kỹ)
 
@@ -23,28 +25,35 @@ Hai lớp:
 5. **Tôn trọng ToS/robots.txt/rate-limit** khi crawl. Site nào fail thì log + chạy tiếp, không retry vô hạn.
 6. **Secrets**: mọi token (Slack, Claude API, email) đặt trong `.env` (đã gitignore). Không log, không commit token, không commit `jobpilot.db`.
 
-## Quy trình triển khai (phase-by-phase + Codex Review)
+## Quy trình triển khai (phase-by-phase + Review gate)
 
 Triển khai theo phase trong `PLAN.md §9`. **Mỗi phase là một vòng khép kín:**
 
 1. **Implement** trọn vẹn 1 phase (theo scope PLAN.md), verify chạy được (không chỉ dựa test).
-2. **Summary for Codex Review** — xuất một tóm tắt chuẩn để user đưa Codex review, gồm:
+2. **Summary for review** — xuất một tóm tắt chuẩn, gồm:
    - *Scope*: phase nào, mục tiêu.
    - *Changes*: danh sách file thêm/sửa + vai trò.
    - *Key decisions*: quyết định kỹ thuật + lý do.
    - *How to verify*: lệnh chạy thử + kết quả kỳ vọng.
    - *Risks / follow-ups*: điểm cần lưu ý, nợ kỹ thuật.
-3. **Chờ Codex** — user mang summary sang Codex.
-   - ✅ Codex **approve** → sang bước 4.
-   - ❌ Codex **có ý kiến** → sửa theo feedback, quay lại bước 2 (không push).
-4. **Push git** — commit (message theo Conventional Commits) + push. Chỉ push **sau khi Codex approve**.
+3. **Review gate** — chạy subagent `phase-reviewer` (định nghĩa ở
+   `.claude/agents/phase-reviewer.md`) trên diff, kèm summary ở bước 2 làm context.
+   Nó review **độc lập** trên `git diff` thật, không chỉ đọc summary — và nó biết
+   các bẫy đã trả giá của repo (đọc `PHASES.md` + checklist trong định nghĩa agent).
+   - ✅ **APPROVE** → trình verdict cho user, sang bước 4.
+   - ❌ **CHANGES REQUESTED** → sửa theo finding, quay lại bước 2 (không push).
+   - Reviewer **không tự sửa code** và **không tự push** — nó chỉ ra verdict;
+     quyền quyết định vẫn ở user.
+4. **Push git** — commit (message theo Conventional Commits) + push. Chỉ push **sau khi review approve và user đồng ý**.
 5. **Tiếp phase sau.**
 
 Ràng buộc:
 - **Không tự merge/nhảy phase** khi chưa có approve.
 - Mỗi phase = 1 (hoặc vài) commit gọn, message rõ; kết thúc phase mới push.
 - Branch làm việc: `feat/jobpilot` (giữ `main` sạch), trừ khi user yêu cầu khác.
-- Cập nhật checklist "Trạng thái hiện tại" bên dưới sau mỗi phase.
+- Sau mỗi phase: ghi chi tiết vào `PHASES.md`, thêm 1 dòng vào bảng "Trạng thái hiện
+  tại" bên dưới, cập nhật "Nợ kỹ thuật" nếu có gì đổi. **Giữ `CLAUDE.md` dưới 40k ký
+  tự** — chi tiết đi vào `PHASES.md`, ở đây chỉ để thứ còn đang áp dụng.
 
 ## Commands
 
@@ -68,8 +77,13 @@ uvicorn jobpilot.api.main:app --reload   # API backend (REST + WebSocket) tại 
 cd web && npm run dev               # Web Dashboard (Vite) tại :5173  ← control plane chính
 python -m jobpilot.cli crawl        # crawl các nguồn đang bật → Postgres
 python -m jobpilot.cli crawl --query "java spring" --limit 50   # scope 1 lần chạy
+                                    # query NGẮN thôi: nó thành slug/từ khoá ở từng
+                                    # site, "java spring boot backend" → TopCV 0 job.
+                                    # limit > 1 trang thì `crawl.max_pages` quyết định
+                                    # đi thêm bao nhiêu trang (mặc định 5).
                                     # (hoặc dùng card "Crawl setup" ở trang Runs: chọn nguồn,
                                     #  gõ từ khoá — có gợi ý lấy từ Master CV — rồi Crawl now)
+python -m jobpilot.cli backfill     # gắn quality signal cho job crawl trước Phase 14 (idempotent)
 python -m jobpilot.cli cv seed      # tạo Master CV rỗng nếu chưa có (idempotent)
 python -m jobpilot.cli cv import my-cv.local.json   # nạp CV có sẵn vào DB
 python -m jobpilot.cli cv export my-cv.local.json   # backup CV từ DB ra file (gitignored)
@@ -133,6 +147,9 @@ chứ không tạo bản trùng.
 
 ## Thêm một site crawl mới
 
+> Có subagent `scraper-smith` (`.claude/agents/scraper-smith.md`) đóng gói đúng quy
+> trình dưới đây + toàn bộ bẫy đã gặp. Dùng nó thay vì làm tay.
+
 0. **Đọc `robots.txt` TRƯỚC KHI viết code** (nguyên tắc 5). Nếu site cấm trang job
    thì dừng — không có cách nào "lách" cho hợp lệ (xem LinkedIn ở trên).
 1. **Tìm `<script type="application/ld+json">` có `@type: JobPosting` trước đã.**
@@ -151,56 +168,84 @@ chứ không tạo bản trùng.
 7. Đăng ký trong `crawler/registry.SCRAPERS` + 1 dòng `config.yaml`.
 8. **Crawl thật một lần** rồi đọc output — test xanh không có nghĩa là parser đúng.
 
+**Nguồn có feed chính thức (RSS/JSON) thì kế thừa `crawler/feed.FeedScraper`**, đừng
+viết lại: nó set `needs_detail = False` (feed đã có JD đầy đủ → 25 job = 1 request,
+không phải 26), chọn `HttpFetcher` thay vì browser, và lo phần lọc theo query ở
+`matches_query` (feed không có search phía server). Lọc theo **title + tag của site**,
+không bao giờ theo JD — JD nào cũng nhắc nửa ngành công nghệ ở mục "nice to have".
+
+**Đọc HẾT `robots.txt`, đừng `head -40`.** Jobicy để `Disallow: /api/` ở **dòng 48**;
+40 dòng đầu trông rất thoáng. Cách duy nhất đáng tin là chạy chính
+`RobotsPolicy(DEFAULT_USER_AGENT).allowed(url)` — nó parse cả file, và nó là thứ
+sẽ chặn lúc crawl thật.
+
+### Nguồn tier-2 đã loại (đừng kiểm tra lại từ đầu)
+
+| Nguồn | Lý do loại |
+|---|---|
+| **Remotive** | `robots.txt`: `Disallow: /api/*` — mà API là đường duy nhất dùng được. |
+| **Jobicy** | `robots.txt` dòng 48: `Disallow: /api/`. Filter `tag=` chạy rất tốt, `appliedFilters` còn echo lại — nhưng robots cấm thì dừng (nguyên tắc 5). |
+| **RemoteOK** | `Content-Signal: ai-train=no, use=reference` + `User-agent: ClaudeBot → Disallow: /`. **Giống hệt TopDev** → cần một quyết định rõ ràng, không mặc định làm. |
+| **Himalayas** | robots OK, nhưng API **bỏ qua mọi filter** (thử `q`/`search`/`keyword`/`skill`/`category`/`title` → `totalCount` y hệt 96.394 và cùng job đầu) và **âm thầm cắt `limit` xuống 20**. Feed newest-first đủ mọi ngành: 2/20 title là phần mềm → crawl "thành công" và giao job bác sĩ X-quang. |
+
+Bài học chung: một API trả 200 kèm filter bị bỏ qua **nguy hiểm hơn** một API trả lỗi.
+Nếu response có field kiểu `appliedFilters` thì **check nó**, đừng tin.
+
 ## Trạng thái hiện tại
 
-- ✅ Khung LaTeX Awesome-CV hoạt động (`awesome-cv.cls` + `fonts/`, build Docker). Nội dung CV nằm trong DB, không trong repo.
-- ✅ Docs nền tảng: `PLAN.md`, `SKILL.md`, `CLAUDE.md`.
-- ✅ **Phase 0** — scaffold `jobpilot/` + `web/` (placeholder) + `docker-compose` + `pyproject` + `Makefile` + `config.yaml`/`.env.example` + config loader + CLI + smoke tests.
-- ✅ **Phase 1** — Python build wrapper (`tailor/build.py` + `cli build`, Docker LaTeX, page-count qua pypdf) + cải thiện Skills của Master CV (ATS, giữ 1 trang) + untrack LaTeX aux cũ.
-- ✅ **Phase 2** — Data + API skeleton: SQLAlchemy 2.0 models (`store/models.py`: jobs/applications/edits/runs/cv_versions + `JobStatus` enum) + engine/session (`store/db.py`, sync psycopg3, schema `jobpilot`, SQLite translate-map cho test) + Alembic (initial migration, GIN trên payload) + FastAPI (`api/main.py`: `GET /jobs`, `GET /jobs/{id}`, `GET /stats`, `WS /ws`, token auth, CORS localhost) + `cli serve`. 25 test pass; verify live HTTP+WS trên SQLite; migration render Postgres DDL hợp lệ (Docker chưa chạy nên chưa `alembic upgrade` lên Postgres thật).
-- ✅ **Phase 3** — Crawler MVP: `crawler/` framework (`base.BaseScraper` template + pure `search_url`/`parse_search`/`parse_detail`; `fetch.PlaywrightFetcher` lazy import; `ratelimit` jittered delay; `robots` policy; `text`/`normalize` HTML→md + posted_at + level + match_score; `persist` upsert-by-id + cross-source dedup `(company, normalized_title)`; `pipeline.run_crawl` graceful per-site fail + `Run` record; `registry` config→scrapers). ITviec scraper implemented (real selectors); TopCV/VietnamWorks scaffolded to the same interface (disabled in config until real HTML snapshot); `FixtureScraper` for offline e2e. `cli crawl` wired (`--query`, `--no-robots`). No schema change (payload holds §3.1). 52 tests pass; verified live crawl→persist→Run on SQLite via fixture + real CLI path (ITviec fails gracefully w/o Playwright).
-- ✅ **Phase 4** — Web Dashboard MVP: React (Vite+TS+Tailwind, shadcn-style hand-rolled UI) "flight deck" dashboard. Backend additions: `POST /jobs/{id}/shortlist|skip` (state transitions + WS `job_updated` broadcast), stats enriched (`fresh`, `by_level`, `by_day`), `/jobs` search (`q`) + `fresh` filter, `JobDetailOut` (skills/description_md/is_fresh from payload), shared `timeutil` (+07 fixed offset). Frontend: Dashboard (KPI cards + signature "approach funnel" + BySource/ByDay charts via validated dataviz palette), Jobs (filter/search + shortlist/skip inline), Job detail (JD + skills + actions), realtime via `useWebSocket` (LIVE indicator + auto-refetch), dark/light theme. 58 py tests pass; `npm run build` clean (tsc+vite); verified live over HTTP (seeded SQLite → serve → curl /stats, /jobs, detail, q+fresh, shortlist transition, 401).
-- ✅ **Phase 4.5** — CV Studio (slice lõi): `jobpilot/cv/` — `schema.py` (Pydantic `CvDocument`: theme/header/sections discriminated union paragraph|bullets|education|experience|projects), `latex.py` (inline markup `**bold**`/`` `tech` ``/`~techfe~`/`[label](url)` + escape mọi ký tự LaTeX đặc biệt — content không bao giờ chứa LaTeX thô), `templates/awesome_cv/*.j2` (Jinja2, delimiter `<< >>`/`<% %>`), `render.py` (JSON → `cv.tex` + `resume/*.tex` + `tex_snapshot`), `master_seed.json` (import 1 lần từ `resume/*.tex` — **PDF text identical** với `cv.pdf` gốc), `store.py` (`cv_versions` append-only, auto-seed master, rollback = re-save, `fork_from_master` cho Phase 5), `compile.py` (build dir riêng `out/cv/<scope>/`, không đụng `resume/`). API: `GET/PUT /cv/{scope}`, `POST /cv/{scope}/compile`, `GET /cv/{scope}/pdf`, `GET /cv/{scope}/versions[/{v}]`, `POST /cv/{scope}/rollback/{v}`, `GET /cv/templates` + WS `cv_updated`/`cv_compiled`. CLI `cv seed|render|build|versions`. Web: trang **CV Studio** (editor structured — reorder/toggle section, bullet/entry/tag inputs — + PDF preview compile-on-demand + version history/restore). 115 py tests pass; `npm run build` clean; verified live: auto-seed → edit (đổi position, đưa Skills lên, ẩn Honors) → PUT v2 → Docker compile → PDF phản ánh đúng 3 thay đổi → rollback v1 → PDF **identical** với Master gốc → WS push.
-- ✅ **Phase 5** — Tailor engine + CV Review: `jobpilot/tailor/` — `schema.py` (`TailorPlan` **index-based**: agent chỉ được reorder/drop/ẩn theo chỉ số của Master CV; free text duy nhất là `summary` → bịa skill là *shape schema không diễn đạt được*, không phải luật để agent tuân theo), `guard.py` (2 tầng: structural — mọi index phải trỏ vào content có thật; lexical — mọi token "trông như tech" trong summary phải có trong vocabulary của Master CV; trả về violations để engine retry 1 lần), `prompt.py` (system prompt encode SKILL.md §0/§2 + Master CV render thành **indexed outline** = address space của plan; system ổn định/user volatile để cache tốt), `engine.py` (`claude-opus-4-8`, adaptive thinking, structured output qua `messages.parse(output_format=TailorPlan)`, 1 vòng retry khi vi phạm guardrail; `FixtureEngine` cho test), `apply.py` (plan → tailored `CvDocument`, thuần & không mutate Master), `diff.py` (structural diff: rewritten/trimmed/hidden/reordered — không dùng line diff vì tailor chủ yếu *di chuyển* content), `service.py` (state machine SHORTLISTED→TAILORING→REVIEW→APPROVED/SKIPPED, edit loop có cap `edit_max_rounds`, `Run` record, lưu plan+diff vào `cv_versions.meta`). Migration **0002** thêm `cv_versions.meta`. API: `POST /jobs/{id}/tailor|edit|approve|reject`, `GET /jobs/{id}/review|cv` (router `review` phải include **trước** `jobs` vì `GET /{job_id:path}` là greedy) + WS `tailor_done`. CLI `tailor`. Web: trang **CV Review** (PDF tailored | diff + gap report + edit box), CV Studio nhận scope `/cv/:scope`. 186 test pass; verify live qua HTTP với Docker build thật (chỉ giả lệnh gọi Claude): plan→PDF 1 trang phản ánh đúng 4 thay đổi, facts/metrics giữ nguyên, Master CV không đổi, edit round + approve + 409/422 đúng, **guardrail chặn plan bịa "Apache/Terraform" ở tầng HTTP và không ghi CV nào**.
-- ✅ **Phase 6** — Apply dispatcher + Applications board: `jobpilot/apply/` — `letter.py` (cover letter SKILL.md §2 bước 4; **tách `paragraphs` (claim, check nghiêm ngặt theo vocabulary Master CV) khỏi `learning_note` (chỗ DUY NHẤT được nhắc skill MISSING, và chỉ những MISSING mà tailor plan đã xác định)** → câu "chưa dùng X, sẵn sàng học" diễn đạt được còn "thạo X" thì không), `email.py` (**3 gate độc lập**: `enabled` → `dry_run` → `test_recipient`; `build_email` thuần không chạm socket, `send_email` là hàm duy nhất nói chuyện với mail server và từ chối khi dry_run; MIME + đính kèm PDF qua stdlib `smtplib`), `portal.py` (handoff package: URL + CV + field để paste, luôn chạy được không cần Playwright; `match_field` so khớp **theo từ** — `prefill_with_browser` chỉ nối vào CLI, không bao giờ tự submit), `dispatcher.py` (email full-auto | portal/external chờ user confirm; **dry run giữ job ở APPROVED** vì không có gì được gửi; mọi nhánh đều ghi `Application` + `Run`). Migration **0003** thêm `applications.meta` + `created_at`. API `POST /jobs/{id}/apply|confirm-submit|report-failure`, `GET /applications[?result=]`, `GET /applications/settings` + WS `apply_done`. CLI `apply` / `confirm-submit`. Web: trang **Applications** (4 cột Prepared/Your turn/Submitted/Failed + banner trạng thái gate) + nút Apply ở CV Review. 232 test pass; verify live: dựng **SMTP server thật tại chỗ** → dry run không gửi & giữ APPROVED → bật gate → gửi thật, message bắt được có đúng recipient test, cover letter làm body, câu gap còn nguyên, và **PDF đính kèm byte-identical với bản tailored**; portal không tự submit; config mặc định (`enabled: false`) chặn gửi ở tầng HTTP.
-- ✅ **Phase 7** — Slack (kênh phụ): `jobpilot/slack/` — **Slack là client thuần của REST API, backend không biết gì về Slack** (PLAN.md §10: 1 nguồn sự thật = Postgres, mọi action đi qua API → Web và Slack không thể lệch state). `client.py` (`JobPilotClient` gọi REST; nhận inject `httpx.Client` nên test chạy thẳng vào ASGI app thật), `blocks.py` (Block Kit builders **thuần**, không import SDK; `check_blocks` validate đúng limit Slack — 50 blocks / 3000 char section / 75 char label / 2000 char value; builder truncate thay vì để Slack trả 400), `events.py` (WS event → tin nhắn; **cố tình im lặng** với các transition thường để channel còn dùng được — chỉ post review/apply/failure), `app.py` (Socket Mode; nút = dispatch table `ACTIONS` → method của client; mirror WS chạy thread riêng, tự reconnect; degrade rõ ràng khi thiếu SDK/token). CLI `slack --api --web`. 256 test pass; verify live: client drive toàn bộ funnel qua HTTP thật (shortlist→tailor→approve→apply→confirm-submit), render đúng job/review/apply card (gap "Apache Kafka" hiện rõ, portal card có đủ field để dán), WS thật đẩy 2 event → mirror lọc còn 1 notification. **Chưa verify được: gửi thật lên Slack workspace** (chưa có token/app).
-- ✅ **Phase 8** — Orchestration & polish: `orchestrator.py` — `TaskQueue` in-process (ThreadPoolExecutor **1 worker**: máy chạy Docker + browser cùng lúc thì fan-out chỉ tranh tài nguyên, và serial làm chữ "queued" có nghĩa; mỗi task body tự mở session DB riêng vì session SQLAlchemy không thread-safe). Worker thread đẩy progress về event loop của API qua `run_coroutine_threadsafe` → WS `task_updated`. **Invariant**: `status` được ghi *cuối cùng* (sau `result`/`finished_at`) vì đó là tín hiệu mọi consumer poll; eviction history không bao giờ xoá task chưa chạy xong. `POST /crawl` → 202 + task (chặn crawl thứ 2 khi đang chạy: sẽ đua rate-limit cùng site), `GET /tasks[/{id}]`, `GET /runs`, `GET/PUT /settings`. **Settings ghi vào `config.local.yaml` (gitignored) merge đè lên `config.yaml`** — vì comment trong `config.yaml` là tài liệu (nhất là 3 cổng an toàn email) và YAML round-trip sẽ xoá sạch; patch không validate được thì bị từ chối *trước khi ghi*. CLI `run [--query] [--every N]` (loop đơn giản thay vì thêm dependency scheduler; rc=1 khi mọi site fail để cron thấy được). Web: trang **Runs** (queue realtime + history + nút Crawl) và **Settings** (crawl/sources/apply gates/CV, mỗi card save riêng). 279 test pass; verify live: `POST /crawl` → 202, crawl thứ 2 → 409, WS stream `queued→running(progress)→done` với `finished_at`+`result` đầy đủ, site fail được báo chứ không nuốt, settings round-trip mà `config.yaml` **byte-identical**, patch sai bị từ chối, và crawl thật (không có Playwright) fail có thông báo hành động được + vẫn ghi `Run`.
-- ✅ **Phase 9** — TopCV + VietnamWorks chạy thật (hết scaffold): `crawler/jsonld.py` — parser schema.org **`JobPosting`** dùng chung, vì cả 2 site đều nhúng block đó cho Google Jobs và **nó là target ổn định nhất**: có JD đầy đủ, `datePosted` tuyệt đối, và site có động lực giữ nó đúng (index Google phụ thuộc vào đó) mạnh hơn động lực giữ tên class CSS. `crawler/vietnam.py` — nhận diện theo giá trị dùng chung (CITIES, "thoả thuận/thương lượng" → `salary=None`, regex posted, lọc noise "+3"/"Rất đông ứng viên"); `itviec.py` refactor để dùng chung, không còn 3 bản copy danh sách thành phố. **TopCV**: KHÔNG phải Vue SPA — server-rendered, curl là đủ; card `.job-item-search-result` + `data-job-id`. **VietnamWorks**: `__NEXT_DATA__` chỉ chứa dropdown filter, job đến từ XHR → **phải qua Playwright**; đọc DOM (`.new-job-card`) chứ không gọi API nội bộ `ms.vietnamworks.com` (host đó không có robots.txt; trang user-facing thì `robots.txt` cho phép rõ ràng — nguyên tắc 5). 354 test pass; **verify live cả 3 site**: TopCV 4/4 job Java thật (match 0.5–1.0, JD 2.4–3.1k chars), VNW 2/4 insert (2 bị filter đúng luật), ITviec không regress sau refactor.
+Roadmap `PLAN.md §9` **đã xong** (Phase 0 → 15). Nhật ký chi tiết từng phase — scope,
+quyết định kỹ thuật, và các bug chỉ lộ ra khi chạy thật — nằm ở **`PHASES.md`**. Đọc
+phần tương ứng trong đó trước khi đụng vào một vùng code lần đầu; mục "Nợ kỹ thuật"
+ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thường ngày.
 
-  **Helper dùng chung nay ở `crawler/text.py`**: `el_text`, `first_match`, `strip_query`, `leaf_texts` — trước đó `_text` bị copy ở 4 file, `_clean_url`/`_first` ở 2 file.
+| Phase | Nội dung | Code |
+|---|---|---|
+| 0–2 | scaffold; build wrapper Docker LaTeX; models + Alembic + FastAPI skeleton | `store/`, `api/`, `alembic/` |
+| 3 | crawler framework (pure `search_url`/`parse_*`, robots, rate-limit, dedup) + ITviec | `crawler/base.py`, `pipeline.py`, `persist.py` |
+| 4 | Web Dashboard: jobs/funnel/charts + realtime WS | `web/`, `api/main.py` |
+| 4.5 | CV Studio: JSON `CvDocument` → Jinja2 `.tex` → Docker PDF, `cv_versions` append-only | `cv/` |
+| 5 | Tailor engine **index-based** + guardrail chống bịa (structural + lexical) + CV Review | `tailor/` |
+| 6 | Apply dispatcher (email 3 gate / portal / external) + Applications board | `apply/` |
+| 7 | Slack — **client thuần của REST API**, backend không biết gì về Slack | `slack/` |
+| 8 | `TaskQueue` 1 worker + trang Runs/Settings (`config.local.yaml` overlay) | `orchestrator.py`, `config.py` |
+| 9 | TopCV + VietnamWorks chạy thật; JSON-LD `JobPosting` + nhận diện theo giá trị dùng chung | `crawler/jsonld.py`, `vietnam.py` |
+| 10 | Tailor/apply rời request path → **202 + task**; guard 1 task/1 job nằm trong `submit()` | `orchestrator.py`, `tailor/service.py` |
+| 11 | Phân trang nhiều trang + `FeedScraper` (RSS/JSON) + WeWorkRemotely/Arbeitnow | `crawler/base.py`, `feed.py` |
+| 12 | ATS adapter tier-3 — 1 adapter phủ mọi công ty dùng Greenhouse/Lever | `crawler/ats.py` |
+| 13 | Máy đọc được PDF không (text layer, **không chấm điểm**) | `cv/ats.py` |
+| 14 | Giải thích `match_score` + cờ chất lượng tin (`no_jd`/`thin_jd`/`stale`/`undated`) | `crawler/quality.py` |
+| 15 | Nhắc follow-up sau khi nộp — hiện trên board, **không tự gửi** | `apply/followup.py` |
 
-  **8 bug chỉ lộ ra khi chạy thật hoặc khi review, đều đã có test ghim:**
-  1. `/tim-viec-lam-it?keyword=java` **im lặng bỏ qua `keyword`** — trả 200 + 50 card của category IT chung (1.655 job: "IT Support", "IT Comtor"), rồi **cả 4/4 bị filter vì match_score = 0**. Search thật là slug trong path: `/tim-viec-lam-java-spring-boot` → 84 job Java. Param bị bỏ qua *tệ hơn* lỗi: crawl báo thành công và lặng lẽ giao sai job.
-  2. JSON-LD `identifier` là id của **nhà tuyển dụng**, không phải job (TopCV: 198409 = id trong URL công ty). Dùng làm `native_id` thì mọi job cùng công ty chung 1 row và mỗi lần crawl ghi đè lần trước. `native_id` luôn lấy từ URL.
-  3. `select_one("h2 a, a")` chọn theo **thứ tự document**, không theo thứ tự selector — link logo VNW đứng trước `h2 a` nên title lặng lẽ đến từ sai element. Dùng `text.first_match(root, *selectors)`.
-  4. TopCV có 3 nhóm tag markup y hệt nhau; lấy hết thì "Team building"/"Bảo hiểm xã hội" thành **skill**, chảy vào `match_score` và gap report của tailor. Chỉ đọc nhóm "Chuyên môn".
-  5. `SearchHit.extra` **không tự chảy sang `RawJob`** — `normalize` chỉ spread `raw.extra`. Đặt extra trên hit rồi quên `extra=dict(hit.extra)` trong `parse_detail` là mất sạch (TopCV mất label kinh nghiệm ở mọi job) *mà test cấp-card vẫn xanh*. `linkedin.py` đã làm đúng từ trước.
-  6. Match city bằng substring không phân biệt hoa/thường: `"remote" in "remote debugging"` → tag skill thành **location**. Sai dữ liệu *trông như đúng*, tệ hơn thiếu dữ liệu. Giờ city phải **chiếm gần hết** label (bỏ tên city ra chỉ còn filler "TP."/"City"/dấu câu), và mọi phần tách bởi dấu phẩy đều phải là city → giữ "Hà Nội, Hồ Chí Minh", loại "Java, Remote debugging".
-  7. Hard-stop khi thấy chữ "competitive/thoả thuận" **ăn mất lương thật** đứng sau nó ("Competitive salary package" rồi mới tới "$2,000 - $3,000"). Chỉ **login wall** mới stop scan (đúng ca ITviec, để không nhặt số từ banner "IT Salary Report"); "negotiable" chỉ là *leaf này không có lương*, tiếp tục quét.
-  8. Regex posted bắt buộc có "ago"/"trước" → card render duration trần ("8 hours") bị mất timestamp, job mới trông như không có ngày. Suffix giờ là optional.
+505 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
-  **Crawl 0 job giờ có cảnh báo** (`base.crawl`): selector chết trả `[]` và crawl "thành công" với 0 job — không phân biệt được với query không có kết quả (PLAN §10 "cảnh báo khi 0 job"). Có cả cảnh báo khi `hits < limit` (VNW lazy-load).
-
-- ✅ **Phase 10** — Tailor + apply rời request path, lên `TaskQueue`: `POST /jobs/{id}/tailor|edit|apply` giờ trả **202 + task**, tiến độ về qua WS `task_updated` (web có poll 1.5s làm lưới an toàn khi socket rớt). **Cái KHÔNG hoãn**: mọi thứ chỉ cần đọc DB là từ chối được vẫn là 409/422 **ngay trong request** (`service.check_tailorable` / `dispatcher.check_appliable` — sai status, hết edit round, chưa build CV). Hoãn một lỗi rõ ràng thành "chờ 1 phút rồi mới biết sai" là làm UX tệ đi, không phải làm nó async. Task body mở **session riêng** (session của request không sống lâu hơn request) và tự `queue.publish` các event domain (`job_updated`/`tailor_done`/`apply_done`) vì route đã return trước khi việc chạy — nhờ đó **guardrail fail giờ mới tới được Slack**: đường 422 cũ không broadcast gì cả. Guard **1 task / 1 job** (409) vì 2 vòng tailor sẽ tranh cùng build dir — guard nằm **trong `TaskQueue.submit(exclusive=True)`**, không phải ở route: check và insert phải cùng một lần giữ lock (xem bug 4). `Task.error_kind` (tên class exception) tách khỏi `error` để UI phân biệt `GuardrailViolation` (sự kiện truthfulness — hiện riêng, nói rõ "chưa ghi gì vào CV") với lỗi build/mạng. `progress` đặt tên đúng stage ("planning against the JD" / "building the PDF" / "writing the cover letter") — 2 stage này fail vì lý do hoàn toàn khác nhau. Task result cố tình **nhỏ** (`/tasks` trả 50 cái một lúc); plan/diff vẫn ở `cv_versions` qua `GET /review`. CLI giữ nguyên đồng bộ (terminal thì chờ là đúng). Web: hook `useTask` + component `TaskProgress`. 392 test pass; **verify live trên Postgres thật + Docker LaTeX thật + browser thật** (chỉ giả lệnh gọi Claude): `POST /tailor` **202 trong 34 ms** (trước là block cả vòng build), WS đẩy `queued→running→"planning against the JD"→"building the PDF"→job_updated→tailor_done→done`, PDF thật 1 trang; POST lần 2 khi đang chạy → 409; plan bịa "Golang/Terraform" → task **failed** + `error_kind=GuardrailViolation` + job FAILED + **không ghi thêm cv_version nào**; apply → 202 → `result=awaiting_user` + `job_updated SUBMITTING`; edit round 1→3 rồi round 4 bị chặn 409 ngay trong request; trang CV Review hiện pill TAILORING + card tiến độ chạy thật, không lỗi console.
-
-  **5 bug chỉ lộ ra khi chạy thật / chạy full suite / khi review, đều đã có test ghim:**
-  1. **`TestClient` dùng làm context manager chạy lifespan**, mà lifespan exit gọi `queue.shutdown()` → `ThreadPoolExecutor` **không restart được**. Sau test đó, mọi task submit tiếp theo nằm `queued` **vĩnh viễn** — UI thấy "đang chạy" nhưng không có gì chạy, và không có lỗi nào để đọc. Pool giờ **lazy + dựng lại sau shutdown**; task còn `queued` lúc shutdown bị đánh dấu `failed` ("cancelled — the queue shut down") thay vì nói dối là đang chờ.
-  2. **SQLite in-memory + `StaticPool` = 1 connection dùng chung**, nên hết mô phỏng được Postgres ngay khi có thread thứ hai: worker đang mở transaction thì request thread `close()` session → **ROLLBACK nuốt luôn việc của worker**. Triệu chứng: apply task báo thành công mà job vẫn APPROVED. Test DB giờ là **file SQLite + WAL** → mỗi session một connection, giống thật. (Cùng họ với bài học "verify crawl phải chạy Postgres thật".)
-  3. **`pypdf` là extra `[cv]` chưa cài** → `_pages_from_pdf` fallback regex không đọc nổi PDF của xelatex (object stream nén), builder image cũng không để lại `.log` → `pages = ... or 0`. `0` bị render thành badge đỏ "0 pages" trên một CV 1 trang hoàn toàn bình thường. `pages` giờ là `int | None`, `None` = *không biết* (UI ẩn badge, CLI nói "page count unknown"). "Không biết" và "0" là hai khẳng định khác nhau.
-  4. **Guard "1 task / 1 job" đặt ở route là TOCTOU.** Route tailor/apply là `def` thuần → FastAPI chạy chúng trong threadpool, nên 2 request đồng thời cùng đọc `queue.active()` thấy trống rồi cùng `submit`. Verify thật: bắn **8 POST /tailor song song** → trước khi sửa nhiều task lọt, sau khi chuyển guard vào `submit(exclusive=True)` (check + insert + schedule trong **một** lần giữ lock) → đúng **1× 202, 7× 409, 1 task**. Cùng lock đó cũng đóng race `submit` vs `shutdown` (pool bị đóng giữa lúc dựng và lúc dùng → task kẹt `queued` vĩnh viễn → job đó 409 mãi mãi).
-  5. **Exception "không lường trước" bỏ job kẹt ở TAILORING/SUBMITTING.** Service commit trạng thái đang-chạy *trước* phần chậm, nhưng chỉ đổi sang FAILED cho các lỗi nó biết (guardrail/build/SMTP). Một `KeyError` là job đứng mãi ở "đang tailor" mà chẳng có gì đang tailor. `_publish_job_status(settle=True)` ở nhánh lỗi giờ hạ trạng thái treo xuống FAILED — task vẫn giữ nguyên văn lỗi thật.
+**Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
+- **Test xanh không chứng minh parser đúng.** Mỗi phase crawl đều có bug chỉ lộ ra khi
+  chạy thật. Verify qua **Postgres + API thật** rồi *đọc output*, không dừng ở test.
+- **Sai dữ liệu *trông như đúng* tệ hơn thiếu dữ liệu.** Param bị site lặng lẽ bỏ qua,
+  trang 403 parse thành "hết kết quả", `"remote" in "remote debugging"`, `intern` nằm
+  trong `internal`. Cái nguy hiểm luôn là thứ báo cáo thành công.
+- ***Không biết* ≠ *hỏng*.** `pages=None` vs `pages=0`, `undated` vs `stale`,
+  `spacing_reliable=False` thay vì kết luận PDF lỗi.
+- **Đừng để công cụ đo bịa ra finding.** `pypdf` đọc mất dấu cách rồi kết luận CV hỏng —
+  PDF chưa bao giờ hỏng, công cụ đo mới hỏng.
 
 ### Nợ kỹ thuật còn lại (roadmap PLAN.md §9 đã xong)
 
-- **Crawler**: ITviec + TopCV + VietnamWorks + LinkedIn(alerts) chạy thật; chỉ TopDev còn chưa có scraper (disabled trong config). Trang Runs chỉ cho chọn nguồn `enabled && ready` — `ready` = có scraper đăng ký trong `registry.SCRAPERS`, vì bật trong Settings không có nghĩa là đã implement. Cần `pip install -e '.[crawler]' && playwright install chromium` để crawl.
-- **Bật TopCV/VietnamWorks trên máy đã dùng Settings**: `config.yaml` giờ mặc định `enabled: true`, nhưng `config.local.yaml` (do trang Settings ghi, gitignored) **đè lên** và có thể vẫn giữ `enabled: false` từ trước. Bật lại trong Settings, hoặc xoá `config.local.yaml`.
-- **VietnamWorks lazy-load**: mỗi lần fetch search page chỉ render ~9–20 card (số còn lại là skeleton chờ scroll), nên `jobs_per_site` > ~9 sẽ không đủ hàng từ 1 trang. Chưa làm phân trang (`?page=N`) / scroll — `PlaywrightFetcher` cố tình là `(url) -> html` thuần nên thêm scroll sẽ đổi contract dùng chung cho mọi site.
+- **Crawler**: ITviec + TopCV + VietnamWorks + LinkedIn(alerts) + WeWorkRemotely + Arbeitnow chạy thật; chỉ TopDev còn chưa có scraper (disabled trong config). Trang Runs chỉ cho chọn nguồn `enabled && ready` — `ready` = có scraper đăng ký trong `registry.SCRAPERS`, vì bật trong Settings không có nghĩa là đã implement. Cần `pip install -e '.[crawler]' && playwright install chromium` để crawl (2 nguồn tier-2 **không cần** Playwright).
+- **Bật nguồn trên máy đã dùng Settings**: từ Phase 11, `config.local.yaml` merge **theo key** nên nguồn mới trong `config.yaml` luôn hiện ra; nhưng nếu overlay từng ghi `enabled: false` cho một key thì key đó vẫn tắt. Bật lại trong Settings, hoặc xoá `config.local.yaml`.
+- **VietnamWorks lazy-load — đã xử lý bằng phân trang** (không phải scroll): 1 fetch vẫn chỉ render ~9–20 card, nhưng `search()` đi tiếp `?page=N` nên `jobs_per_site` > 9 vẫn đủ hàng (verify thật: 9 → **29 job**; trang 3 lặp lại trang 2 và bị guard bắt). Giữ nguyên `PlaywrightFetcher` là `(url) -> html` thuần — scroll sẽ đổi contract dùng chung cho mọi site, phân trang thì không.
+- **TopCV thực tế chỉ lấy được ~50 job/lần crawl**: request thứ 2 trong cùng session bị Cloudflare chặn (403). Không phải bug — mặc định `jobs_per_site: 10` không bao giờ chạm tới, và khi chạm thì báo rõ "blocked — anti-bot" rồi giữ lại 50 hit của trang 1.
+- **Query quá dài làm TopCV trả 0 kết quả**: keyword vào *path* nên "Java Spring Boot Backend" thành slug 4 từ → 0 job (crawl cảnh báo "try a shorter query"). `default_query` = 3 stack đầu, nên đổi thứ tự `crawl.stacks` là đổi luôn chất lượng search TopCV.
+- **Nguồn tier-2 là remote/toàn cầu** (WWR: US/worldwide; Arbeitnow: Đức/EU, JD nhiều bài tiếng Đức) và **thiên về senior**, nên `exclude_keywords: [Senior, Lead, ...]` mặc định lọc đi khá nhiều. Tắt trong Settings nếu chỉ muốn job Việt Nam.
 - **TopDev**: `robots.txt` `Allow: /` cho `User-agent: *` nhưng chặn riêng `ClaudeBot` và đặt `Content-Signal: ai-train=no, use=reference`. Chưa làm — không phải vì thiếu code mà vì cần quyết định rõ, và TopCV/VNW đã là 2 nguồn core đã chốt.
 - **Bài học selector (ITviec)**: ITviec dùng utility CSS nên **match class theo substring là bẫy** — `[class*=city]` khớp `opa-city-50` khiến mọi job có location `"Hiring"`, `[class*=salary]` bắt trúng banner "IT Salary Report". Location/posted/salary giờ nhận diện **theo giá trị** (danh sách thành phố, regex thời gian), không theo cấu trúc. ITviec giấu lương sau login → `salary=None` là câu trả lời đúng, không phải placeholder. Test `test_itviec.py` ghim đúng các bẫy này. Bộ nhận diện theo giá trị nay dùng chung ở `crawler/vietnam.py` cho cả 3 site VN.
 - **SQLite KHÔNG enforce `VARCHAR(n)`, Postgres thì có.** Verify crawl trên SQLite là chưa đủ: một field quá dài chỉ nổ khi chạy Postgres thật, và nó nổ *giữa flush* → `PendingRollbackError` **rollback cả crawl**, 1 field xấu làm mất sạch cả batch. `normalize._fit()` giờ clamp `title/company/location/salary` theo đúng width cột (payload vẫn giữ text đầy đủ). Verify crawl phải chạy qua **Postgres + API thật**, không chỉ SQLite.
 - **Đừng quét salary trên cả body detail.** `.box-job-information-detail` của TopCV chứa cả panel "việc làm tương tự", và card trong đó **có lương riêng** sau khi hydrate → 2 job không liên quan cùng ra "20 - 60 triệu". Salary chỉ lấy từ nguồn chắc chắn thuộc job này: card của chính nó, hoặc `baseSalary`. Không có thì `None` là câu trả lời đúng. Cùng bài học với ITviec. `parse_salary` cũng có guard `MAX_SALARY_LEN=80` — lương là *label*, không phải đoạn văn (từng trả về nguyên blob 6.7 KB JD làm salary).
 - **`select_one("a, b")` KHÔNG theo thứ tự selector** mà theo thứ tự trong document. Trên card VietnamWorks link logo đứng trước `h2 a`, nên one-liner lấy trúng logo (không có text, chỉ có `title`) và title lặng lẽ đến từ sai element. Dùng helper `_first(root, *selectors)` khi thứ tự ưu tiên là có ý.
-- **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp).
+- **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp). Từ Phase 11 nó **raise theo status code** — trang chặn (403/429) là một *trang* hợp lệ với parser, nên nếu không chặn ở tầng fetch thì nó lặng lẽ thành "0 job".
+- **Chọn fetcher theo thứ site phục vụ, không theo thói quen**: `HttpFetcher` cho document (RSS/JSON/HTML server-render), `PlaywrightFetcher` cho app (ITviec/VNW). Đừng truyền 1 fetcher dùng chung cho mọi scraper trong production — `build_scrapers(fetcher=...)` chỉ dành cho test, vì browser sẽ bọc JSON thành `<pre>` và feed parser vỡ.
+- **`infer_level` vẫn quét cả JD**, nên một JD nhắc "we hire senior engineers" có thể kéo job mid thành senior. Đã sửa phần substring (Phase 11) nhưng phạm vi quét thì chưa thu hẹp — thu về title-only sẽ mất các job VN ghi "thực tập sinh" trong body.
 - **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco), diff giữa 2 version bất kỳ. `tex_snapshot` đã lưu mỗi version nên diff làm sau rất nhẹ.
 - **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.
 - **Cần `pip install -e '.[cv]'`** cho `pypdf`, nếu không page count trả `None` (badge "1 trang" biến mất, không còn cảnh báo CV tràn 2 trang). Build PDF vẫn chạy bình thường — chỉ mất phần đếm trang.
