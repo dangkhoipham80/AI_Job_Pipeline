@@ -17,6 +17,7 @@ import re
 import smtplib
 from dataclasses import dataclass, field
 from email.message import EmailMessage
+from email.utils import make_msgid
 from pathlib import Path
 
 from jobpilot.config import ApplyCfg, Secrets
@@ -43,6 +44,11 @@ class OutgoingEmail:
     # Set when test_recipient redirected delivery away from the employer.
     intended_to: str | None = None
     dry_run: bool = True
+    # Our own Message-ID, minted here rather than left to the SMTP server.
+    # A reply quotes it back in In-Reply-To, which is the one way to tie an
+    # employer's answer to this application without guessing from names and
+    # domains — so it has to be a value we recorded, not one we never saw.
+    message_id: str = field(default_factory=lambda: make_msgid(domain="jobpilot.local"))
 
     @property
     def redirected(self) -> bool:
@@ -53,6 +59,7 @@ class OutgoingEmail:
         msg["From"] = f"{self.from_name} <{self.from_addr}>" if self.from_name else self.from_addr
         msg["To"] = self.to
         msg["Subject"] = self.subject
+        msg["Message-ID"] = self.message_id
         body = self.body
         if self.redirected:
             # Make it obvious in the inbox that this is a rehearsal.
@@ -78,6 +85,10 @@ class OutgoingEmail:
             "attachments": [Path(p).name for p in self.attachments],
             "dry_run": self.dry_run,
             "body_preview": self.body[:400],
+            # Recorded even on a dry run, where it addresses nothing — the row
+            # then says plainly that no thread exists to match a reply against,
+            # rather than leaving a reader to wonder whether one was lost.
+            "message_id": self.message_id,
         }
 
 

@@ -196,7 +196,7 @@ Nếu response có field kiểu `appliedFilters` thì **check nó**, đừng tin
 ## Trạng thái hiện tại
 
 Roadmap `PLAN.md §9` **đã xong** (Phase 0 → 15), và roadmap mở rộng **`PLAN.md §9.1`
-(Phase 18 → 25)** đang chạy — Phase 18 xong, tiếp theo là **Phase 19 (inbox sync)**.
+(Phase 18 → 25)** đang chạy — Phase 18–19 xong, tiếp theo là **Phase 20 (analytics thật)**.
 Nhật ký chi tiết từng phase — scope,
 quyết định kỹ thuật, và các bug chỉ lộ ra khi chạy thật — nằm ở **`PHASES.md`**. Đọc
 phần tương ứng trong đó trước khi đụng vào một vùng code lần đầu; mục "Nợ kỹ thuật"
@@ -222,8 +222,9 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 16 | Diff giữa 2 version CV bất kỳ trong CV Studio (dùng lại diff của tailor) | `tailor/diff.py`, `api/routes/cv.py` |
 | 17 | Cover letter ra `.tex` → PDF, đính kèm email; text vẫn là bản chính | `apply/letter_pdf.py`, migration 0006 |
 | 18 | Chuyện gì xảy ra **sau** khi nộp: replied/interview/offer/rejected + lịch sử | `apply/outcome.py`, migration 0007 |
+| 19 | Đọc thư NTD → **đề xuất** outcome, user bấm mới ghi | `apply/inbox.py`, migration 0008 |
 
-581 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+612 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
@@ -236,6 +237,25 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
   `spacing_reliable=False` thay vì kết luận PDF lỗi.
 - **Đừng để công cụ đo bịa ra finding.** `pypdf` đọc mất dấu cách rồi kết luận CV hỏng —
   PDF chưa bao giờ hỏng, công cụ đo mới hỏng.
+
+### Inbox sync (Phase 19) — đọc trước khi đụng vào `apply/inbox.py`
+
+- **Thứ tự fetch → ghép cục bộ → LLM là thiết kế riêng tư, không phải tối ưu.** Thư không
+  thuộc đơn nào **dừng lại ngay trong máy**; chỉ thư đã khớp mới tới Claude. Đừng đảo thứ
+  tự, đừng "gửi hết cho model cho gọn" — có test ghim
+  (`test_unmatched_mail_is_never_handed_to_the_classifier`).
+- **`quote` phải xuất hiện thật trong thư**, nếu không verdict bị loại và lưu status
+  `unusable`. **Vẫn phải lưu** dù bị loại: không lưu thì lần sync sau thư đó lại "mới" và
+  lại gọi Claude — trả tiền vô hạn cho một câu trả lời không bao giờ hiển thị.
+- **Bật cần `apply.inbox.enabled`** + `IMAP_USER`/`IMAP_PASSWORD` (Gmail phải là App
+  Password). Mặc định **tắt** — đọc hộp thư của người khác không phải thứ tự ý bật hộ.
+  `apply.inbox.folder` cho ai muốn siết vào một label riêng.
+- **Chỉ đề xuất `replied`/`interview`/`offer`/`rejected`.** `withdrawn`/`ghosted` là quyền
+  tự khai của user. "Đã nhận hồ sơ" là `auto_ack`, không phải `replied`.
+- **Tên công ty phải fold về ASCII trước khi so với domain** (`inbox.fold`) — domain không
+  bao giờ có dấu, nên "Công ty TNHH X" mà không fold sẽ giữ `công` như phần đặc trưng.
+- **`meta` là JSONB do bất kỳ phiên bản dispatcher nào ghi** — đọc field trong đó ở React
+  phải optional-chain. Một row thiếu key từng làm trắng cả trang Applications.
 
 ### Outcome tracking (Phase 18) — đọc trước khi đụng vào số liệu
 

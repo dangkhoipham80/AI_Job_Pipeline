@@ -115,7 +115,11 @@ class TaskQueue:
 
     def _active_locked(self, job_id: str) -> Task | None:
         return next(
-            (t for t in self._tasks.values() if t.job_id == job_id and t.status in (QUEUED, RUNNING)),
+            (
+                t
+                for t in self._tasks.values()
+                if t.job_id == job_id and t.status in (QUEUED, RUNNING)
+            ),
             None,
         )
 
@@ -309,8 +313,9 @@ def _publish_job_status(job_id: str, *, settle: bool = False) -> None:
             if job is None:
                 return
             if settle and job.status in in_flight:
-                log.warning("job %s left in %s by a failed task — marking FAILED",
-                            job_id, job.status.value)
+                log.warning(
+                    "job %s left in %s by a failed task — marking FAILED", job_id, job.status.value
+                )
                 job.status = JobStatus.FAILED
             status = job.status.value
     except Exception:  # never let a notification failure mask the real outcome
@@ -459,5 +464,47 @@ def crawl_body(
                     "filtered": t.filtered,
                 },
             }
+
+    return body
+
+
+def inbox_body(
+    classifier=None, since_days: int | None = None, limit: int | None = None
+) -> TaskBody:
+    """One pass over the mailbox, proposing what the replies mean (Phase 19).
+
+    On the queue rather than in the request for the usual two reasons: it talks
+    to an IMAP server and then, for the handful of messages that matched an
+    application, to Claude. Neither belongs inside a web request.
+
+    Nothing it writes is final — every proposal lands as a suggestion for the
+    board, and only a person turns one into an outcome.
+    """
+
+    def body(progress: Progress) -> dict:
+        from jobpilot.apply.inbox import default_classifier, sync_inbox
+        from jobpilot.config import get_config, get_secrets
+        from jobpilot.crawler.mailbox import ImapMailbox
+        from jobpilot.store.db import session_scope
+
+        cfg = get_config()
+        blocker = cfg.apply.inbox_blocker()
+        if blocker:
+            raise RuntimeError(blocker)
+
+        engine = classifier or default_classifier()
+        mailbox = ImapMailbox(get_secrets(), folder=cfg.apply.inbox.folder)
+        progress(f"opening {cfg.apply.inbox.folder}")
+        with session_scope() as db:
+            report = sync_inbox(
+                db,
+                mailbox=mailbox,
+                classifier=engine,
+                since_days=since_days or cfg.apply.inbox.since_days,
+                limit=limit or cfg.apply.inbox.limit,
+                progress=progress,
+            )
+        progress(f"done — {report.suggested} to look at from {report.scanned} message(s) read")
+        return report.as_dict()
 
     return body

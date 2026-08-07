@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from jobpilot import __version__
-from jobpilot.api.routes import apply, cv, jobs, ops, review, stats
+from jobpilot.api.routes import apply, cv, inbox, jobs, ops, review, stats
 from jobpilot.api.ws import manager, websocket_endpoint
 from jobpilot.orchestrator import queue
 
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(stats.router)
     app.include_router(cv.router)
+    app.include_router(inbox.router)
     app.include_router(ops.router)
     app.add_api_websocket_route("/ws", websocket_endpoint)
     return app

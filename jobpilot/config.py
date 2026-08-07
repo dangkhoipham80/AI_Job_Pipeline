@@ -91,9 +91,30 @@ class EmailCfg(BaseModel):
     subject_template: str = "Application for {title} — {name}"
 
 
+class InboxCfg(BaseModel):
+    """Reading employer replies out of your own mailbox (Phase 19).
+
+    Off by default. Reading somebody's mail is not a thing to switch on for
+    them, even when the reading is local and read-only.
+
+    ``folder`` is the escape hatch for anyone who would rather not point this at
+    a whole inbox: file replies into a label with a mail rule and name it here,
+    and nothing outside it is ever opened. The default is still INBOX, because a
+    reply you forgot to file is a reply JobPilot would never see.
+    """
+
+    enabled: bool = False
+    folder: str = "INBOX"
+    since_days: int = 30
+    # Messages read per pass, newest first. Matching is local, so this bounds
+    # mail *read*, not mail sent anywhere.
+    limit: int = 100
+
+
 class ApplyCfg(BaseModel):
     email: EmailCfg = Field(default_factory=EmailCfg)
     portal_prefill: bool = True
+    inbox: InboxCfg = Field(default_factory=InboxCfg)
 
     def email_blocker(self) -> str:
         """Why the email channel may not run, or '' if it may."""
@@ -101,6 +122,18 @@ class ApplyCfg(BaseModel):
             return "email apply is disabled (apply.email.enabled)"
         if not self.email.from_addr:
             return "apply.email.from_addr is not set"
+        return ""
+
+    def inbox_blocker(self, secrets: "Secrets | None" = None) -> str:
+        """Why the inbox sync may not run, or '' if it may."""
+        if not self.inbox.enabled:
+            return "inbox sync is off (apply.inbox.enabled)"
+        s = secrets or get_secrets()
+        if not s.imap_user or not s.imap_password:
+            return (
+                "IMAP_USER / IMAP_PASSWORD are not set in .env — for Gmail this must be "
+                "an App Password, not your account password"
+            )
         return ""
 
 
