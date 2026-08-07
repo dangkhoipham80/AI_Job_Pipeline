@@ -12,7 +12,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import CvCompileOut, CvDocumentOut, CvVersionDetailOut, CvVersionOut
+from jobpilot.api.schemas import (
+    CvCompileOut,
+    CvDocumentOut,
+    CvVersionDetailOut,
+    CvVersionDiffOut,
+    CvVersionOut,
+)
 from jobpilot.api.ws import manager
 from jobpilot.cv import store
 from jobpilot.cv.compile import build_dir, check_build, compile_document
@@ -20,6 +26,7 @@ from jobpilot.cv.render import list_templates, render_tex_snapshot
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job
 from jobpilot.tailor.build import BuildError
+from jobpilot.tailor.diff import VERSION_LABELS, diff_documents
 
 router = APIRouter(prefix="/cv", tags=["cv"], dependencies=[Depends(require_token)])
 
@@ -131,6 +138,43 @@ def version_detail(scope: str, version: int, db: Session = Depends(get_db)) -> C
         **CvVersionOut.model_validate(row).model_dump(),
         document=CvDocument.model_validate(row.content),
         tex=row.tex_snapshot or render_tex_snapshot(CvDocument.model_validate(row.content)),
+    )
+
+
+@router.get("/{scope}/diff", response_model=CvVersionDiffOut)
+def version_diff(
+    scope: str,
+    base: int,
+    target: int,
+    db: Session = Depends(get_db),
+) -> CvVersionDiffOut:
+    """Structural diff between any two versions of a scope (``base`` -> ``target``).
+
+    Same walker the CV Review page uses, with neutral wording: here a disabled
+    section means you switched it off, not that an agent dropped it for a job.
+    """
+    rows = {}
+    # dict.fromkeys: dedupes base == target (one row, one query) while keeping
+    # base first, so "both missing" reports the base version rather than a
+    # version the caller has to guess the order of.
+    for version in dict.fromkeys((base, target)):
+        row = store.get_version(db, scope, version)
+        if row is None:
+            raise HTTPException(
+                status_code=404, detail=f"scope {scope!r} has no version {version}"
+            )
+        rows[version] = row
+    return CvVersionDiffOut(
+        scope=scope,
+        base=base,
+        target=target,
+        base_author=rows[base].author,
+        target_author=rows[target].author,
+        diff=diff_documents(
+            CvDocument.model_validate(rows[base].content),
+            CvDocument.model_validate(rows[target].content),
+            labels=VERSION_LABELS,
+        ),
     )
 
 

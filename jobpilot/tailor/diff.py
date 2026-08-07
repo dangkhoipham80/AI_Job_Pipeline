@@ -1,19 +1,56 @@
-"""Structural diff between the Master CV and a tailored one (PLAN.md §5.6 CV Review).
+"""Structural diff between two CV documents (PLAN.md §5.6 CV Review).
 
 Text diffing would be noisy here: the tailor mostly *moves* content, so a line
 diff would report every bullet as changed. This walks the structure instead and
 reports what actually happened — reordered, hidden, trimmed, rewritten — which is
 what the reviewer needs in order to trust the result quickly.
+
+Two callers, two vocabularies. Comparing Master → tailored, "hidden" means the
+agent dropped a section *for this role*; comparing v3 → v7 of the same CV it just
+means you switched the section off. The structural detection is identical, so
+only the wording is parameterized — see ``DiffLabels``. Handing the tailor's
+phrasing to a version diff would explain an edit you made by hand as a decision
+the agent made for a job, which is the kind of confidently-wrong caption this
+repo has been bitten by before.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from jobpilot.cv.schema import CvDocument, ParagraphSection, Section
 
 # Section states, ordered by how much attention they deserve in the UI.
 SectionStatus = str  # "rewritten" | "hidden" | "reordered" | "trimmed" | "unchanged"
+
+
+class DiffLabels(BaseModel):
+    """Phrases for the four structural events that need a human-readable note."""
+
+    disabled: str
+    enabled: str
+    rewritten: str
+    added: str
+    removed: str
+
+
+#: Master -> tailored, as the CV Review page reads it.
+TAILOR_LABELS = DiffLabels(
+    disabled="hidden from this CV to keep it to one page",
+    enabled="shown in this CV",
+    rewritten="summary rewritten for this role",
+    added="new section",
+    removed="removed from this CV",
+)
+
+#: Version N -> version M of one scope, as CV Studio's history reads it.
+VERSION_LABELS = DiffLabels(
+    disabled="section turned off",
+    enabled="section turned on",
+    rewritten="summary rewritten",
+    added="section added",
+    removed="section deleted",
+)
 
 
 class SectionDiff(BaseModel):
@@ -31,6 +68,7 @@ class CvDiff(BaseModel):
     order_after: list[str] = []
     sections: list[SectionDiff] = []
 
+    @computed_field  # serialized, so the UI asks "did anything change?" once, here
     @property
     def changed(self) -> bool:
         return self.order_changed or any(s.status != "unchanged" for s in self.sections)
@@ -62,25 +100,25 @@ def _order_note(kind: str, before: list[str], after: list[str]) -> list[str]:
     return notes
 
 
-def _diff_section(before: Section, after: Section) -> SectionDiff:
+def _diff_section(before: Section, after: Section, labels: DiffLabels) -> SectionDiff:
     notes: list[str] = []
     status = "unchanged"
     out = SectionDiff(key=after.key, title=after.title, status=status)
 
     if before.enabled and not after.enabled:
         out.status = "hidden"
-        out.notes = ["hidden from this CV to keep it to one page"]
+        out.notes = [labels.disabled]
         return out
     if not before.enabled and after.enabled:
         out.status = "reordered"
-        out.notes = ["shown in this CV"]
+        out.notes = [labels.enabled]
         return out
 
     if isinstance(before, ParagraphSection) and isinstance(after, ParagraphSection):
         if before.text != after.text:
             out.status = "rewritten"
             out.before, out.after = before.text, after.text
-            out.notes = ["summary rewritten for this role"]
+            out.notes = [labels.rewritten]
         return out
 
     notes += _order_note("entries", _entry_labels(before), _entry_labels(after))
@@ -107,7 +145,9 @@ def _diff_section(before: Section, after: Section) -> SectionDiff:
     return out
 
 
-def diff_documents(master: CvDocument, tailored: CvDocument) -> CvDiff:
+def diff_documents(
+    master: CvDocument, tailored: CvDocument, labels: DiffLabels = TAILOR_LABELS
+) -> CvDiff:
     """Compare the two documents section by section, matching on section key."""
     before_order = [s.key for s in master.sections]
     after_order = [s.key for s in tailored.sections]
@@ -123,11 +163,11 @@ def diff_documents(master: CvDocument, tailored: CvDocument) -> CvDiff:
         if original is None:
             diff.sections.append(
                 SectionDiff(
-                    key=section.key, title=section.title, status="reordered", notes=["new section"]
+                    key=section.key, title=section.title, status="reordered", notes=[labels.added]
                 )
             )
             continue
-        diff.sections.append(_diff_section(original, section))
+        diff.sections.append(_diff_section(original, section, labels))
 
     for key in by_key:
         if key not in after_order:
@@ -136,7 +176,7 @@ def diff_documents(master: CvDocument, tailored: CvDocument) -> CvDiff:
                     key=key,
                     title=by_key[key].title,
                     status="hidden",
-                    notes=["removed from this CV"],
+                    notes=[labels.removed],
                 )
             )
     return diff

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from jobpilot.apply.followup import describe, is_due
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job, JobStatus
+from jobpilot.tailor.diff import CvDiff
 
 
 class JobOut(BaseModel):
@@ -93,6 +94,21 @@ class CvVersionOut(BaseModel):
 class CvVersionDetailOut(CvVersionOut):
     document: CvDocument
     tex: str
+
+
+class CvVersionDiffOut(BaseModel):
+    """Structural diff between two versions of one scope.
+
+    ``base``/``target`` echo the versions actually compared, so the UI labels the
+    panel from the response rather than from what it believes it asked for.
+    """
+
+    scope: str
+    base: int
+    target: int
+    base_author: str
+    target_author: str
+    diff: CvDiff
 
 
 class CvCompileOut(BaseModel):

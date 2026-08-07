@@ -8,6 +8,7 @@ import type {
   CvDocumentResponse,
   CvVersion,
   CvVersionDetail,
+  CvVersionDiff,
   Job,
   JobDetail,
   JobInput,
@@ -83,6 +84,8 @@ export const api = {
   cvVersions: (scope: string) => req<CvVersion[]>(`${cvPath(scope)}/versions`),
   cvVersion: (scope: string, version: number) =>
     req<CvVersionDetail>(`${cvPath(scope)}/versions/${version}`),
+  cvDiff: (scope: string, base: number, target: number) =>
+    req<CvVersionDiff>(`${cvPath(scope)}/diff?base=${base}&target=${target}`),
   rollbackCv: (scope: string, version: number) =>
     req<CvDocumentResponse>(`${cvPath(scope)}/rollback/${version}`, { method: "POST" }),
 

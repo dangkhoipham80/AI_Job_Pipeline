@@ -118,6 +118,69 @@ def test_unknown_scope_404(client):
     assert client.get("/cv/itviec:nope", headers=AUTH).status_code == 404
 
 
+def _diff(client, base: int, target: int):
+    return client.get(f"/cv/master/diff?base={base}&target={target}", headers=AUTH)
+
+
+def test_diff_reports_what_changed_between_two_versions(client):
+    doc = _master(client)["document"]
+    doc["sections"] = [s for s in doc["sections"] if s["key"] != "honors"]
+    for s in doc["sections"]:
+        if s["key"] == "summary":
+            s["text"] = "Rewritten by hand."
+    client.put("/cv/master", headers=AUTH, json=doc)
+
+    body = _diff(client, 1, 2).json()
+    assert (body["base"], body["target"]) == (1, 2)
+    assert body["base_author"] == body["target_author"] == "user"
+
+    by_key = {s["key"]: s for s in body["diff"]["sections"]}
+    assert by_key["summary"]["status"] == "rewritten"
+    assert by_key["summary"]["after"] == "Rewritten by hand."
+    assert by_key["honors"]["status"] == "hidden"
+
+
+def test_diff_uses_neutral_wording_not_the_tailors(client):
+    """A hand edit in Studio is not "hidden to keep it to one page" — no agent
+    decided anything here, and captioning it that way invents a reason."""
+    doc = _master(client)["document"]
+    doc["sections"] = [s for s in doc["sections"] if s["key"] != "honors"]
+    client.put("/cv/master", headers=AUTH, json=doc)
+
+    notes = [n for s in _diff(client, 1, 2).json()["diff"]["sections"] for n in s["notes"]]
+    assert "section deleted" in notes
+    assert not any("this role" in n or "one page" in n for n in notes)
+
+
+def test_diff_of_a_version_against_itself_is_empty(client):
+    _master(client)
+    diff = _diff(client, 1, 1).json()["diff"]
+    assert diff["order_changed"] is False
+    assert all(s["status"] == "unchanged" for s in diff["sections"])
+    # `changed` is a computed_field. Drop the decorator and it silently vanishes
+    # from the JSON — the UI reads `undefined` as falsy and never complains.
+    assert diff["changed"] is False
+
+
+def test_diff_serializes_the_changed_flag(client):
+    doc = _master(client)["document"]
+    doc["sections"] = [s for s in doc["sections"] if s["key"] != "honors"]
+    client.put("/cv/master", headers=AUTH, json=doc)
+    assert _diff(client, 1, 2).json()["diff"]["changed"] is True
+
+
+def test_diff_404_on_a_missing_version(client):
+    _master(client)
+    assert _diff(client, 1, 99).status_code == 404
+    assert _diff(client, 99, 1).status_code == 404
+
+
+def test_diff_route_is_not_shadowed_by_the_version_detail_route(client):
+    """/cv/{scope}/diff must not be read as /cv/{scope}/versions/{version}."""
+    _master(client)
+    assert _diff(client, 1, 1).status_code == 200
+
+
 def test_pdf_404_before_compile(client, monkeypatch, tmp_path):
     monkeypatch.setattr("jobpilot.api.routes.cv.build_dir", lambda scope: tmp_path / scope)
     assert client.get("/cv/master/pdf", headers=AUTH).status_code == 404
