@@ -237,6 +237,29 @@ def crawl_card(stats: dict, web_base: str = "http://localhost:5173") -> list[dic
     ]
 
 
+def result_card(
+    job: dict, event_type: str, label: str = "", web_base: str = "http://localhost:5173"
+) -> list[dict]:
+    """An employer moved (Phase 18): an interview, an offer, a rejection.
+
+    No buttons. Recording an outcome from a phone is a Phase 19 problem, and a
+    button that only re-opens the dashboard is worse than a link that says so.
+    """
+    headline = {
+        "interview": "🎙️ *Interview*",
+        "offer": "🎉 *Offer*",
+        "rejected": "🙅 *Rejected*",
+    }.get(event_type, f"*{event_type}*")
+
+    blocks = [
+        section(f"{headline}\n{job.get('title', 'Untitled')} · {job.get('company', '?')}"),
+    ]
+    if label:
+        blocks.append(context(_truncate(label, 200)))
+    blocks.append(actions(link_button("Dashboard", f"{web_base.rstrip('/')}/applications")))
+    return blocks
+
+
 def error_card(job_id: str, title: str, reason: str) -> list[dict]:
     """Failures get a message too — PLAN.md §5.4 wants the cause, not a silence."""
     return [

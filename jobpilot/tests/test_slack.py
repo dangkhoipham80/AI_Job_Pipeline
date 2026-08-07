@@ -314,6 +314,37 @@ def test_routine_transitions_stay_quiet(client):
     assert notification_for({"type": "cv_updated", "scope": "master"}, client) is None
 
 
+def test_an_employer_moving_is_worth_a_message(client):
+    """Phase 18. An interview or an offer is exactly the thing you want to hear
+    about while away from the dashboard."""
+    note = notification_for(
+        {
+            "type": "outcome_recorded",
+            "application_id": 1,
+            "job_id": "itviec:1",
+            "event_type": "interview",
+            "label": "Round 1",
+        },
+        client,
+    )
+    assert note and note.kind == "outcome"
+    assert "Interview" in note.text and "ACME Corp" in note.text
+    assert B.check_blocks(note.blocks) == []
+
+
+def test_outcomes_you_typed_yourself_stay_quiet(client):
+    """``replied``/``withdrawn``/``ghosted`` are things you just entered by
+    hand. Echoing them back is how a channel becomes noise you mute."""
+    for event_type in ("replied", "withdrawn", "ghosted"):
+        assert (
+            notification_for(
+                {"type": "outcome_recorded", "job_id": "itviec:1", "event_type": event_type},
+                client,
+            )
+            is None
+        )
+
+
 def test_failures_are_reported(client):
     client.shortlist("itviec:1")
     tailor(client, "itviec:1")

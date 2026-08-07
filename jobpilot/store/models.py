@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Enum,
     Float,
@@ -32,6 +33,7 @@ JSONType = JSONB().with_variant(JSON(), "sqlite")
 # Schema-qualified FK targets. SQLite rewrites the schema away via the engine's
 # schema_translate_map, so these stay correct in tests too.
 _JOBS_ID = f"{SCHEMA}.jobs.id"
+_APPLICATIONS_ID = f"{SCHEMA}.applications.id"
 
 
 class JobStatus(str, enum.Enum):
@@ -125,8 +127,68 @@ class Application(Base):
         DateTime(timezone=True), nullable=True, index=True
     )
     followup_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The most recent outcome recorded for this application, denormalized off
+    # ``application_events`` so the board can render 200 cards without 200
+    # subqueries. NULL means nothing has been recorded yet — which is not the
+    # same as nothing having happened, and the board says so.
+    outcome_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     job: Mapped[Job] = relationship(back_populates="applications")
+    events: Mapped[list[ApplicationEvent]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="ApplicationEvent.id",
+    )
+
+
+class ApplicationEvent(Base):
+    """One thing that happened after the application went out (Phase 18).
+
+    Append-only, like ``cv_versions``: an outcome you recorded and then
+    corrected is still evidence about how the search is going, and the analytics
+    phase needs the *sequence* — an application rejected after two interviews is
+    a different story from one rejected on day one, and ``outcome_stage`` alone
+    tells both of them as "rejected".
+
+    ``occurred_at`` and ``recorded_at`` are separate on purpose. Time-to-reply is
+    measured from when the employer actually replied, not from when you got
+    around to typing it in — and Phase 19 (inbox sync) will be typing it in days
+    late by definition.
+    """
+
+    __tablename__ = "application_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey(_APPLICATIONS_ID, ondelete="CASCADE"), index=True
+    )
+    # replied | interview | offer | rejected | withdrawn | ghosted.
+    # Deliberately a String, not a Postgres enum: the set will grow (Phase 19
+    # brings employer-reply subtypes), and ALTER TYPE can't run inside a
+    # transaction block, so every future value would cost an awkward migration.
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Soft delete for the mis-click. Retracting rewinds ``outcome_stage`` to the
+    # previous live event rather than deleting the row, because "I recorded this
+    # by mistake" is itself part of the history.
+    is_retracted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Where the follow-up cadence stood just before this event silenced it.
+    # Recording an outcome sets the application to `done`, so without these two
+    # a fully retracted mistake would leave the cadence stopped forever with no
+    # outcome to justify it — the reminder quietly lost, and no way to ask for
+    # it back. Stored per event so retracting restores the exact position rather
+    # than recomputing an approximation of it.
+    prev_followup_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    prev_followup_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    application: Mapped[Application] = relationship(back_populates="events")
 
 
 class Edit(Base):

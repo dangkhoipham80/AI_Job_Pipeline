@@ -193,7 +193,9 @@ Nếu response có field kiểu `appliedFilters` thì **check nó**, đừng tin
 
 ## Trạng thái hiện tại
 
-Roadmap `PLAN.md §9` **đã xong** (Phase 0 → 15). Nhật ký chi tiết từng phase — scope,
+Roadmap `PLAN.md §9` **đã xong** (Phase 0 → 15), và roadmap mở rộng **`PLAN.md §9.1`
+(Phase 18 → 25)** đang chạy — Phase 18 xong, tiếp theo là **Phase 19 (inbox sync)**.
+Nhật ký chi tiết từng phase — scope,
 quyết định kỹ thuật, và các bug chỉ lộ ra khi chạy thật — nằm ở **`PHASES.md`**. Đọc
 phần tương ứng trong đó trước khi đụng vào một vùng code lần đầu; mục "Nợ kỹ thuật"
 ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thường ngày.
@@ -217,8 +219,9 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 15 | Nhắc follow-up sau khi nộp — hiện trên board, **không tự gửi** | `apply/followup.py` |
 | 16 | Diff giữa 2 version CV bất kỳ trong CV Studio (dùng lại diff của tailor) | `tailor/diff.py`, `api/routes/cv.py` |
 | 17 | Cover letter ra `.tex` → PDF, đính kèm email; text vẫn là bản chính | `apply/letter_pdf.py`, migration 0006 |
+| 18 | Chuyện gì xảy ra **sau** khi nộp: replied/interview/offer/rejected + lịch sử | `apply/outcome.py`, migration 0007 |
 
-531 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+581 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
@@ -231,6 +234,27 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
   `spacing_reliable=False` thay vì kết luận PDF lỗi.
 - **Đừng để công cụ đo bịa ra finding.** `pypdf` đọc mất dấu cách rồi kết luận CV hỏng —
   PDF chưa bao giờ hỏng, công cụ đo mới hỏng.
+
+### Outcome tracking (Phase 18) — đọc trước khi đụng vào số liệu
+
+- **`/stats` trả hai bộ đếm và chúng không thay thế nhau được.** `/stats` trả **hai**
+  bộ đếm và chúng **không** thay thế nhau được: `current` đếm theo `Application.outcome_stage`
+  (board đang hiện gì), `reached` đếm `COUNT(DISTINCT application_id)` trên
+  `application_events` chưa retract (đã từng tới chặng nào). **Mọi tỉ lệ phải dùng
+  `reached`** — một đơn phỏng vấn 2 vòng rồi bị từ chối chỉ nằm ở `current["rejected"]`, nên
+  tính interview rate theo `current` sẽ báo số đơn đang *kẹt* ở vòng phỏng vấn, một con số
+  tụt xuống khi mọi việc đang tốt lên. Có test ghim ở cả `test_outcome.py` lẫn
+  `test_outcome_api.py`; đừng "đơn giản hoá" về một bộ.
+- **Outcome sống ở tầng `Application`, không đụng `JobStatus`.** Thêm value vào Postgres
+  enum cần `ALTER TYPE … ADD VALUE` (không chạy trong transaction block) và kéo theo
+  `web/src/lib/statuses.ts` + funnel + `slack/events.py`. Job `SUBMITTED` vẫn `SUBMITTED` dù
+  sau đó offer hay bị từ chối. Muốn thêm loại outcome mới thì thêm một chuỗi vào
+  `apply/outcome.ALL_OUTCOMES` + `OutcomeType` bên Pydantic/TS — **không** cần migration.
+- **`ghosted` không tự suy ra theo bộ đếm ngày**, và outcome không bao giờ tự ghi. Phase 19
+  (inbox sync) cũng chỉ được *đề xuất*: mail vào → gợi ý → user bấm xác nhận mới ghi.
+- **Guard double-click trong React phải là `useRef`, không phải state.** Hai click cùng một
+  tick đều đọc `busy === false` (chưa re-render giữa hai lần) nên state check để lọt click
+  thứ hai và ghi event trùng. Xem `web/src/components/OutcomeTracker.tsx`.
 
 ### Nợ kỹ thuật còn lại (roadmap PLAN.md §9 đã xong)
 

@@ -57,6 +57,8 @@ export interface Stats {
   by_source: Record<string, number>;
   by_level: Record<string, number>;
   by_day: Record<string, number>;
+  /** What happened after the applications went out (Phase 18). */
+  outcomes: OutcomeStats;
 }
 
 export interface JobsQuery {
@@ -320,6 +322,48 @@ export interface Application {
   next_followup_at: string | null;
   followup_due: boolean;
   followup_hint: string;
+  /** The latest outcome recorded (Phase 18). Null means nothing recorded yet —
+   *  which is not the same as nothing having happened. */
+  outcome_stage: OutcomeType | null;
+  outcome_hint: string;
+}
+
+/* Outcome tracking (Phase 18) — mirrors jobpilot/apply/outcome.py ------------ */
+
+export type OutcomeType =
+  | "replied"
+  | "interview"
+  | "offer"
+  | "rejected"
+  | "withdrawn"
+  | "ghosted";
+
+export interface ApplicationEvent {
+  id: number;
+  application_id: number;
+  event_type: OutcomeType;
+  /** When it happened — not when you typed it in. */
+  occurred_at: string | null;
+  label: string | null;
+  notes: string | null;
+  recorded_at: string | null;
+  /** Retracted rows stay in the history, struck through, so a stage that
+   *  rewound is explainable. */
+  is_retracted: boolean;
+}
+
+export interface OutcomeStats {
+  total_real: number;
+  no_outcome: number;
+  /** One bucket per application, keyed on its latest live event. */
+  current: Record<OutcomeType, number>;
+  /** How many applications ever touched each stage. Rates use this one. */
+  reached: Record<OutcomeType, number>;
+  answered: number;
+  /** Null, not 0, when there is nothing to divide by. */
+  reply_rate: number | null;
+  interview_rate: number | null;
+  offer_rate: number | null;
 }
 
 export interface ApplySettings {

@@ -20,10 +20,24 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import ApplicationOut, ApplyIn, FailureIn, JobDetailOut, TaskOut
+from jobpilot.api.schemas import (
+    ApplicationEventOut,
+    ApplicationOut,
+    ApplyIn,
+    FailureIn,
+    JobDetailOut,
+    OutcomeIn,
+    TaskOut,
+)
 from jobpilot.api.ws import manager
 from jobpilot.apply import dispatcher
 from jobpilot.apply.followup import due_applications, mark_followed_up, stop_followups
+from jobpilot.apply.outcome import (
+    OutcomeRefused,
+    list_outcome_events,
+    record_outcome,
+    retract_outcome_event,
+)
 from jobpilot.apply.letter import LetterEngine, default_letter_engine
 from jobpilot.config import get_config, get_secrets
 from jobpilot.orchestrator import TaskBusy, apply_body, queue
@@ -140,6 +154,67 @@ def stop_followup(application_id: int, db: Session = Depends(get_db)) -> Applica
     app = stop_followups(db, application_id)
     if app is None:
         raise HTTPException(status_code=404, detail="application not found")
+    return ApplicationOut.from_row(app, db.get(Job, app.job_id))
+
+
+@board.post("/{application_id}/outcome", response_model=ApplicationOut)
+async def add_outcome(
+    application_id: int, body: OutcomeIn, db: Session = Depends(get_db)
+) -> ApplicationOut:
+    """Record what happened after this one went out (Phase 18).
+
+    Synchronous on purpose: this is a fact the user already knows, not work the
+    machine has to go and do, so a 202 and a task id would be ceremony.
+    """
+    try:
+        event, app = record_outcome(
+            db,
+            application_id,
+            body.event_type,
+            occurred_at=body.occurred_at,
+            label=body.label,
+            notes=body.notes,
+        )
+    except OutcomeRefused as exc:
+        # Nothing left the machine, so nobody could have answered. A 409 rather
+        # than a quiet write: the number this would corrupt is the one the
+        # dashboard divides by.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if app is None:
+        raise HTTPException(status_code=404, detail="application not found")
+
+    await manager.broadcast(
+        {
+            "type": "outcome_recorded",
+            "application_id": app.id,
+            "job_id": app.job_id,
+            "event_type": event.event_type,
+            "label": event.label or "",
+        }
+    )
+    return ApplicationOut.from_row(app, db.get(Job, app.job_id))
+
+
+@board.get("/{application_id}/events", response_model=list[ApplicationEventOut])
+def list_events(application_id: int, db: Session = Depends(get_db)) -> list[ApplicationEventOut]:
+    """This application's history, oldest first, retracted entries included.
+
+    404s on an unknown application rather than returning ``[]``: "no history" and
+    "no such application" are different answers and the UI treats them differently.
+    """
+    if db.get(Application, application_id) is None:
+        raise HTTPException(status_code=404, detail="application not found")
+    return [ApplicationEventOut.model_validate(e) for e in list_outcome_events(db, application_id)]
+
+
+@board.delete("/{application_id}/events/{event_id}", response_model=ApplicationOut)
+def retract_event(
+    application_id: int, event_id: int, db: Session = Depends(get_db)
+) -> ApplicationOut:
+    """Undo a mis-click. The row stays; the stage rewinds to the previous one."""
+    app = retract_outcome_event(db, application_id, event_id)
+    if app is None:
+        raise HTTPException(status_code=404, detail="event not found")
     return ApplicationOut.from_row(app, db.get(Job, app.job_id))
 
 

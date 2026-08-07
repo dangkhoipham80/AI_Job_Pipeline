@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import StatsOut
+from jobpilot.api.schemas import OutcomeStats, StatsOut
+from jobpilot.apply.outcome import outcome_counts
 from jobpilot.config import get_config
 from jobpilot.store.models import Job, JobStatus
 from jobpilot.timeutil import vn_now
@@ -47,4 +48,8 @@ def stats(db: Session = Depends(get_db)) -> StatsOut:
         by_source=by_source,
         by_level=by_level,
         by_day=by_day,
+        # Counted from the event log, not from the funnel: `by_status` stops at
+        # SUBMITTED by design, and everything worth knowing about a job search
+        # happens after that (Phase 18).
+        outcomes=OutcomeStats(**outcome_counts(db)),
     )

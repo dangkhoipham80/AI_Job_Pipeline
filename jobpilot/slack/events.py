@@ -20,6 +20,11 @@ from jobpilot.slack.client import ApiError, JobPilotClient
 # report, so mirroring them would double-post.
 _QUIET_STATUSES = {"DISCOVERED", "SHORTLISTED", "TAILORING", "REVIEW", "APPROVED", "SUBMITTING"}
 
+# Outcomes worth interrupting someone for: the employer moved. The rest
+# (``replied``, ``withdrawn``, ``ghosted``) are things you just typed in
+# yourself, and echoing them back is how a channel becomes noise you mute.
+_LOUD_OUTCOMES = {"interview", "offer", "rejected"}
+
 
 @dataclass
 class Notification:
@@ -75,6 +80,22 @@ def notification_for(
             job_id=job_id,
             text=f"Apply {outcome.get('result')} — {job.get('title')}",
             blocks=B.apply_card(job, outcome, web_base),
+        )
+
+    if kind == "outcome_recorded":
+        event_type = event.get("event_type")
+        outcome_job_id = event.get("job_id")
+        if event_type not in _LOUD_OUTCOMES or not outcome_job_id:
+            return None
+        try:
+            job = client.job(outcome_job_id)
+        except ApiError:
+            return None
+        return Notification(
+            kind="outcome",
+            job_id=outcome_job_id,
+            text=f"{event_type.title()} — {job.get('title')} at {job.get('company')}",
+            blocks=B.result_card(job, event_type, event.get("label") or "", web_base),
         )
 
     if kind == "job_updated" and job_id and event.get("status") == "FAILED":
