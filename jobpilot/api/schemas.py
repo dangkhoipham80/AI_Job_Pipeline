@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from jobpilot.apply import outcome as outcome_mod
 from jobpilot.apply.followup import describe, is_due
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job, JobStatus
@@ -68,6 +69,9 @@ class StatsOut(BaseModel):
     by_source: dict[str, int]
     by_level: dict[str, int]
     by_day: dict[str, int]  # crawled_at date (YYYY-MM-DD) -> count
+    #: What happened after the applications went out (Phase 18). Always present:
+    #: an empty pipeline is zeroes, not a missing key the UI has to guard.
+    outcomes: "OutcomeStats"
 
 
 # --------------------------------------------------------------------------- #
@@ -204,6 +208,10 @@ class ApplicationOut(BaseModel):
     next_followup_at: datetime | None = None
     followup_due: bool = False
     followup_hint: str = ""
+    # What happened after it went out. NULL is "nothing recorded yet", which the
+    # board renders as a prompt rather than as an outcome (Phase 18).
+    outcome_stage: str | None = None
+    outcome_hint: str = ""
 
     @classmethod
     def from_row(cls, app: Any, job: Job) -> "ApplicationOut":
@@ -227,7 +235,69 @@ class ApplicationOut(BaseModel):
             next_followup_at=app.next_followup_at,
             followup_due=is_due(app.next_followup_at),
             followup_hint=describe(app.followup_stage),
+            outcome_stage=app.outcome_stage,
+            outcome_hint=outcome_mod.describe(app.outcome_stage),
         )
+
+
+# --------------------------------------------------------------------------- #
+# Outcome tracking (Phase 18)
+# --------------------------------------------------------------------------- #
+OutcomeType = Literal["replied", "interview", "offer", "rejected", "withdrawn", "ghosted"]
+
+
+class OutcomeIn(BaseModel):
+    """Recording one thing that happened after the application went out."""
+
+    event_type: OutcomeType
+    #: When it actually happened. Defaults to now, but a reply you're entering on
+    #: Friday may have arrived on Tuesday, and time-to-reply should believe you.
+    occurred_at: datetime | None = None
+    label: str | None = Field(None, max_length=outcome_mod.MAX_LABEL)
+    notes: str | None = None
+
+
+class ApplicationEventOut(BaseModel):
+    """One row of an application's history."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    event_type: str
+    # Both NOT NULL in the table, so they are non-optional here too — declaring
+    # them nullable would describe a contract the database can't produce.
+    occurred_at: datetime
+    recorded_at: datetime
+    label: str | None = None
+    notes: str | None = None
+    is_retracted: bool = False
+
+
+class OutcomeStats(BaseModel):
+    """Two ways of counting, because one of them lies.
+
+    ``current`` buckets each application by its latest live event — what the
+    board is showing. ``reached`` counts how many applications ever touched each
+    stage. Rates use ``reached``: an application that interviewed and was then
+    rejected is in ``current["rejected"]`` only, and dividing by that would
+    report the applications *stuck* in interviews instead of the ones that got
+    one.
+
+    Rates are ``None``, not ``0.0``, when the denominator is zero — see
+    ``apply.outcome.outcome_counts``.
+    """
+
+    total_real: int
+    no_outcome: int
+    current: dict[str, int]
+    reached: dict[str, int]
+    #: Applications that got any human answer at all (an interview invite is a
+    #: reply even when nobody typed "replied" first).
+    answered: int
+    reply_rate: float | None = None
+    interview_rate: float | None = None
+    offer_rate: float | None = None
 
 
 # --------------------------------------------------------------------------- #

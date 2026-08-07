@@ -2,7 +2,9 @@ import type {
   CrawlRequest,
   CrawlSetupInfo,
   Application,
+  ApplicationEvent,
   ApplySettings,
+  OutcomeType,
   CvCompileResult,
   CvDocument,
   CvDocumentResponse,
@@ -132,6 +134,17 @@ export const api = {
     req<Application>(`/applications/${id}/followed-up`, { method: "POST" }),
   stopFollowups: (id: number) =>
     req<Application>(`/applications/${id}/stop-followups`, { method: "POST" }),
+
+  /* Outcome tracking (Phase 18). Recording one also ends the follow-up cadence
+     server-side — the board just refetches. */
+  recordOutcome: (
+    id: number,
+    body: { event_type: OutcomeType; occurred_at?: string; label?: string; notes?: string },
+  ) => req<Application>(`/applications/${id}/outcome`, { method: "POST", body: JSON.stringify(body) }),
+  applicationEvents: (id: number) => req<ApplicationEvent[]>(`/applications/${id}/events`),
+  /** Undo a mis-click. The row stays; the stage rewinds. */
+  retractEvent: (id: number, eventId: number) =>
+    req<Application>(`/applications/${id}/events/${eventId}`, { method: "DELETE" }),
 
   /* Orchestration (Phase 8). Crawling can't answer inside a request, so it
      returns a task and progress arrives over the WebSocket. */

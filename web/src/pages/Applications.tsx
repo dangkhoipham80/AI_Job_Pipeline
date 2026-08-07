@@ -15,6 +15,7 @@ import {
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { FollowUps } from "@/components/FollowUps";
+import { OutcomeTracker } from "@/components/OutcomeTracker";
 import { isActive, useTask } from "@/hooks/useTask";
 import { relativeTime } from "@/lib/format";
 import { TaskProgress } from "@/components/TaskProgress";
@@ -160,6 +161,10 @@ export function Applications({ version }: { version: number }) {
                         if (reason.trim()) act(app, () => api.reportFailure(app.job_id, reason));
                       }}
                       onRetry={() => retry(app)}
+                      onOutcome={() => {
+                        void refetch();
+                        followups.refetch();
+                      }}
                     />
                   ))}
                 </div>
@@ -219,12 +224,14 @@ function ApplicationCard({
   onConfirm,
   onFail,
   onRetry,
+  onOutcome,
 }: {
   app: Application;
   busy: boolean;
   onConfirm: () => void;
   onFail: () => void;
   onRetry: () => void;
+  onOutcome: () => void;
 }) {
   const email = app.meta.email;
   const handoff = app.meta.handoff;
@@ -332,6 +339,13 @@ function ApplicationCard({
           <FileText size={12} /> CV
         </a>
       </div>
+
+      {/* Only applications that really went out can carry an outcome — the API
+          refuses the rest with a 409, and showing the prompt on a dry run would
+          be inviting a click that can't work. */}
+      {(app.result === "success" || app.result === "awaiting_user") && (
+        <OutcomeTracker app={app} onChange={onOutcome} />
+      )}
     </Card>
   );
 }

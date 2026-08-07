@@ -299,6 +299,42 @@ CV_Template/
 
 ---
 
+## 9.1 Roadmap mở rộng (Phase 18–25)
+
+Roadmap §9 đã đóng ở Phase 17. Đợt mở rộng này đến từ việc khảo sát ba dự án cùng loại —
+[ai-job-search](https://github.com/MadsLorentzen/ai-job-search),
+[career-ops](https://github.com/santifer/career-ops),
+[jobsync](https://github.com/Gsync/jobsync) — và câu hỏi đáng giá nhất mà cả ba đều trả lời
+còn mình thì chưa:
+
+> **Pipeline của JobPilot kết thúc ở `SUBMITTED`.** Nộp xong là mù. Không biết công ty nào
+> trả lời, nguồn nào thực sự ra phỏng vấn, kênh nào chỉ tốn thời gian. Mọi câu hỏi dạng
+> "cách tìm việc này có hiệu quả không" đều không có dữ liệu để dựa vào.
+
+Cái mình đã hơn họ thì giữ nguyên — Postgres là single source of truth, dashboard realtime,
+tailor index-based có guardrail 2 tầng, ATS text-layer check, robots.txt gate. Đợt này chỉ bê
+**tính năng** về, không bê kiến trúc. Thứ tự dưới đây xếp theo **phụ thuộc dữ liệu**, không
+theo độ hấp dẫn: phase sau cần dữ liệu do phase trước sinh ra.
+
+| Phase | Nội dung | Xong nghĩa là |
+|---|---|---|
+| **18** | **Outcome tracking** — vòng đời sau `SUBMITTED`: `replied` / `interview` (nhiều vòng) / `offer` / `rejected` / `withdrawn` / `ghosted`. Bảng `application_events` append-only + cột `outcome_stage` denormalized. | Ghi/sửa/rút lại được outcome trên board; `GET /stats` trả cả "đang ở chặng nào" lẫn "đã từng tới chặng nào"; ghi outcome thì dừng follow-up. |
+| **19** | **Inbox sync** — dùng lại `crawler/mailbox.py`, quét mail nhà tuyển dụng, ghép với application (domain công ty / thread / thời điểm nộp), Claude phân loại thư → **đề xuất** outcome. | Mail thật vào → đề xuất hiện trên board kèm trích đoạn; **user bấm xác nhận mới ghi**. Không đề xuất nào tự vào DB. |
+| **20** | **Analytics thật** — reply rate / interview rate theo nguồn · kênh · level, time-to-first-reply, phát hiện tin đăng lại nhiều lần (ghost job). | Trang Dashboard trả lời được "nguồn nào đáng crawl tiếp"; mẫu nhỏ thì nói rõ là mẫu nhỏ, không hiện tỉ lệ ảo. |
+| **21** | **LLM ranking 2 tầng + dealbreaker** — keyword score làm bộ lọc rẻ, Claude chấm rubric cho top N (fit / level / stack / location / growth) + cờ legitimacy; hard gate (lương sàn, ngôn ngữ, seniority, onsite); đếm token + chi phí mỗi lần chạy. | Chấm N job tốn đúng N request và **biết** hết bao nhiêu tiền; job vướng hard gate bị loại kèm lý do đọc được. |
+| **22** | **Drafter–reviewer + chống prompt injection** — agent thứ hai soi lại bản tailor / cover letter (từ khoá sót, câu yếu) → một vòng sửa tự động trước khi tới người. JD được đối xử như **dữ liệu**, không phải chỉ thị. | JD có chèn câu ra lệnh không đổi được hành vi agent (có test ghim); reviewer note hiện trên trang CV Review. |
+| **23** | **Vòng cắt CV cho vừa 2 trang** — quá trang thì bỏ/rút gọn item ít liên quan nhất theo thứ hạng relevance của tailor plan rồi build lại. Deterministic, không tốn thêm lượt LLM. | CV tailored không bao giờ tràn quá `cv.max_pages`; cái bị cắt được liệt kê ra chứ không biến mất im lặng. |
+| **24** | **Interview prep + STAR story bank** — bộ chuẩn bị theo từng job, STAR map từ kinh nghiệm **thật** (guardrail như tailor), tích luỹ thành story bank dùng lại. | Ghi event `interview` là có nút sinh bộ chuẩn bị; mọi câu chuyện đều truy được về một mục có thật trong Master CV. |
+| **25** | **Upskill** — gom gap của mọi job đã tailor: yêu cầu nào lặp lại mà mình thiếu → xếp hạng theo tần suất × mức độ gần. | Một danh sách ngắn "học cái này trước" dựa hoàn toàn trên job thật đã gặp, không phải lời khuyên chung chung. |
+
+**Quyết định kiến trúc chốt trước, áp cho cả cụm 18–20:** outcome sống ở tầng
+`Application`, **không** thêm giá trị vào enum `job_status`. `JobStatus` mô tả vòng đời
+*trước khi nộp* của một *job*; một job `SUBMITTED` vẫn là `SUBMITTED` dù sau đó thành offer
+hay bị từ chối. Thêm value vào Postgres enum còn kéo theo migration `ALTER TYPE` (không chạy
+được trong transaction block), `web/src/lib/statuses.ts`, funnel, và `slack/events.py`.
+
+---
+
 ## 10. Rủi ro & giảm thiểu
 
 | Rủi ro | Mức | Giảm thiểu |
@@ -321,4 +357,7 @@ CV_Template/
 2. Bộ lọc job: cứng theo config (level, skill, location) hay để Claude tự chấm điểm match?
 3. Ngưỡng `match_score` tối thiểu để post lên Slack?
 4. Cover letter: 1 template cố định hay Claude sinh tự do mỗi job?
-5. Có cần lưu lịch sử ứng tuyển (đã nộp công ty nào) để tránh nộp trùng?
+5. ~~Có cần lưu lịch sử ứng tuyển (đã nộp công ty nào) để tránh nộp trùng?~~ → **Có.** Bảng
+   `applications` đã chặn nộp trùng từ Phase 6; Phase 18 (§9.1) mở rộng thành lịch sử đầy đủ
+   *sau* khi nộp (`application_events`), vì tránh nộp trùng chỉ là một nửa giá trị của việc
+   nhớ mình đã nộp cho ai.
