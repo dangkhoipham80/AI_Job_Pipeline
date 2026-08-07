@@ -20,6 +20,8 @@ from jobpilot.cv.schema import CvDocument
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 DEFAULT_TEMPLATE = "awesome_cv"
 SECTION_DIR = "resume"
+#: Entry file for the cover letter, next to ``cv.tex`` in the same build dir.
+LETTER_FILE = "cover_letter.tex"
 
 # section type -> template file. 'experience' and 'projects' share one template.
 _SECTION_TEMPLATES = {
@@ -44,7 +46,7 @@ def _techlist(items: list[str]) -> str:
     return ", ".join(rf"\textbf{{{escape_tex(i)}}}" for i in items)
 
 
-def _env(template: str) -> Environment:
+def template_env(template: str) -> Environment:
     root = TEMPLATES_DIR / template
     if not root.is_dir():
         raise RenderError(f"unknown CV template: {template!r}")
@@ -75,9 +77,20 @@ def list_templates() -> list[str]:
     return sorted(p.name for p in TEMPLATES_DIR.iterdir() if p.is_dir())
 
 
+def render_letter(doc: CvDocument, context: dict) -> str:
+    """Serialize a cover letter to ``cover_letter.tex``.
+
+    Takes the header/theme from ``doc`` so the letter carries the same identity
+    block and accent colour as the CV it ships with; ``context`` carries the
+    letter's own text (already plain strings — the template escapes them).
+    """
+    env = template_env(doc.template)
+    return env.get_template(LETTER_FILE + ".j2").render(doc=doc, h=doc.header, **context)
+
+
 def render_document(doc: CvDocument) -> dict[str, str]:
     """Render to ``{relative_path: file_text}``. Only enabled sections are emitted."""
-    env = _env(doc.template)
+    env = template_env(doc.template)
     sections = doc.active_sections()
 
     files: dict[str, str] = {}

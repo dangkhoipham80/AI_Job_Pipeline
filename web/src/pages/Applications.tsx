@@ -5,6 +5,7 @@ import {
   Check,
   ExternalLink,
   FileText,
+  FileWarning,
   Loader2,
   Mail,
   RefreshCw,
@@ -227,6 +228,7 @@ function ApplicationCard({
 }) {
   const email = app.meta.email;
   const handoff = app.meta.handoff;
+  const letter = app.meta.letter;
 
   return (
     <Card className="p-3">
@@ -260,6 +262,17 @@ function ApplicationCard({
             </>
           )}
           {email.attachments.length > 0 && <> · {email.attachments.join(", ")}</>}
+        </p>
+      )}
+
+      {/* A letter with no PDF is not a failed application, so this is a note,
+          not an error — but it says why, because an unexplained missing file
+          reads as "nothing was written". */}
+      {letter?.pdf_error && (
+        <p className="mt-2 rounded-md border bg-surface-2/60 px-2 py-1 text-[11px] leading-relaxed text-ink-muted">
+          <FileWarning size={11} className="mr-1 inline align-[-2px]" />
+          Cover letter sent as text — the PDF didn’t build.{" "}
+          <span className="opacity-70">{letter.pdf_error.slice(-120)}</span>
         </p>
       )}
 

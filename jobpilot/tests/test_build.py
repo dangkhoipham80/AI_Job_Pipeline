@@ -53,15 +53,84 @@ def test_an_unreadable_page_count_is_unknown_not_zero(tmp_path, monkeypatch):
     red; the honest answer is that we don't know."""
     work = tmp_path / "work"
     work.mkdir()
-    (work / "cv.tex").write_text("\\documentclass{article}\\begin{document}x\\end{document}", "utf-8")
-    (work / "cv.pdf").write_bytes(b"%PDF-1.5\n<compressed object streams>\n%%EOF")
+    (work / "cv.tex").write_text(
+        "\\documentclass{article}\\begin{document}x\\end{document}", "utf-8"
+    )
+    monkeypatch.setattr(build_mod.shutil, "which", lambda _: "/usr/bin/docker")
+
+    # The PDF has to appear *because the build ran*, the way docker produces it.
+    # Pre-creating it and stubbing the run as a no-op would pass even if the
+    # build did nothing at all.
+    def fake_run(*_a, **_k):
+        (work / "cv.pdf").write_bytes(b"%PDF-1.5\n<compressed object streams>\n%%EOF")
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(build_mod.subprocess, "run", fake_run)
+    assert build_cv(work, entry="cv.tex").pages is None
+
+
+def test_a_failed_build_does_not_hand_back_the_previous_pdf(tmp_path, monkeypatch):
+    """The image runs `xelatex …; mv …; rm …` with no `set -e`, so LaTeX can fail
+    and the container still exits 0. Then the only evidence of failure is the
+    missing PDF — which last successful build's file would happily answer for,
+    turning a broken build into a silent success serving stale content."""
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "cv.tex").write_text("\\documentclass{article}", encoding="utf-8")
+    (work / "cv.pdf").write_bytes(b"%PDF-1.5\nyesterday\n%%EOF")
     monkeypatch.setattr(build_mod.shutil, "which", lambda _: "/usr/bin/docker")
     monkeypatch.setattr(
         build_mod.subprocess,
         "run",
-        lambda *a, **k: type("P", (), {"returncode": 0, "stdout": ""})(),
+        lambda *a, **k: type(
+            "P", (), {"returncode": 0, "stdout": "! Undefined cs", "stderr": ""}
+        )(),
     )
-    assert build_cv(work, entry="cv.tex").pages is None
+    with pytest.raises(BuildError):
+        build_cv(work, entry="cv.tex")
+
+
+def test_the_entry_file_reaches_the_container(tmp_path, monkeypatch):
+    """The image's built-in command hardcodes cv.tex, so `entry` only means
+    something if we spell the command out ourselves."""
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "cover_letter.tex").write_text("\\documentclass{article}", encoding="utf-8")
+    seen: list[list[str]] = []
+    monkeypatch.setattr(build_mod.shutil, "which", lambda _: "/usr/bin/docker")
+
+    def fake_run(cmd, **_k):
+        seen.append(cmd)
+        (work / "cover_letter.pdf").write_bytes(b"%PDF-1.5\n<</Type /Page>>\n%%EOF")
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(build_mod.subprocess, "run", fake_run)
+    result = build_cv(work, entry="cover_letter.tex")
+    assert result.pdf.name == "cover_letter.pdf"
+    script = seen[0][-1]
+    assert "xelatex -output-directory=$DIR cover_letter.tex" in script
+    assert "mv $DIR/cover_letter.pdf ." in script
+    assert "cv.tex" not in script
+
+
+def test_an_entry_with_a_space_stays_one_shell_token(tmp_path, monkeypatch):
+    """The script is a shell command; an unquoted entry with a space splits into
+    two tokens and xelatex reports a missing file that isn't the one named."""
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "my cv.tex").write_text("\\documentclass{article}", encoding="utf-8")
+    seen: list[list[str]] = []
+    monkeypatch.setattr(build_mod.shutil, "which", lambda _: "/usr/bin/docker")
+
+    def fake_run(cmd, **_k):
+        seen.append(cmd)
+        (work / "my cv.pdf").write_bytes(b"%PDF-1.5\n<</Type /Page>>\n%%EOF")
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(build_mod.subprocess, "run", fake_run)
+    build_cv(work, entry="my cv.tex")
+    script = seen[0][-1]
+    assert "'my cv.tex'" in script and "'my cv.pdf'" in script
 
 
 def test_page_summary_says_unknown_rather_than_warning_about_none_pages():

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from jobpilot.apply.followup import first_step
 from jobpilot.apply.email import EmailError, OutgoingEmail, build_email, recipient_of, send_email
 from jobpilot.apply.letter import LetterEngine
+from jobpilot.apply.letter_pdf import compile_letter
 from jobpilot.apply.portal import Handoff, prepare_handoff
 from jobpilot.config import get_config, get_secrets
 from jobpilot.cv import store as cv_store
@@ -50,6 +51,29 @@ APPLIABLE = {JobStatus.APPROVED, JobStatus.FAILED, JobStatus.SUBMITTING}
 
 class ApplyRefused(RuntimeError):
     """The job is not in a state where applying makes sense."""
+
+
+@dataclass
+class LetterArtifacts:
+    """What the cover letter step produced, if it ran at all.
+
+    ``text`` is the letter; ``pdf`` is a rendering of it. They are tracked apart
+    because they fail apart: the text can exist with no PDF (Docker down), and
+    that is a degraded application, not a failed one. ``pdf_error`` carries the
+    reason onto the Application row so "no PDF" never has to be guessed at.
+    """
+
+    text: str = ""
+    txt: Path | None = None
+    pdf: Path | None = None
+    pdf_error: str | None = None
+
+    def summary(self) -> dict:
+        return {
+            "txt": self.txt.name if self.txt else None,
+            "pdf": self.pdf.name if self.pdf else None,
+            "pdf_error": self.pdf_error,
+        }
 
 
 @dataclass
@@ -129,50 +153,70 @@ def apply_job(
     job.status = JobStatus.SUBMITTING
     db.commit()
 
-    letter_path: Path | None = None
-    letter_text = ""
+    letter = LetterArtifacts()
     if letter_engine is not None:
         try:
             say("writing the cover letter")
             master = cv_store.get_document(db, cv_store.MASTER_SCOPE)
             result = letter_engine.write(master, job, latest_plan(db, job_id))
-            letter_text = result.letter.body()
-            letter_path = _write_letter(job_id, letter_text)
+            letter.text = result.letter.body()
+            letter.txt = _write_letter(job_id, letter.text)
         except (TailorError, GuardrailViolation) as exc:
             return _fail(db, run, job, channel, cv_pdf, f"cover letter: {exc}")
 
+        # The PDF is a rendering; the text is the letter. Docker being down or a
+        # LaTeX error must not withhold an application whose CV already built, so
+        # this failure is recorded on the row and the dispatch goes ahead.
+        #
+        # Deliberately broad. `BuildError` alone covers LaTeX and Docker, but the
+        # same call also copies assets (OSError on a full disk or a read-only
+        # dir) and renders a template (RenderError). Those escaping would leave
+        # the job stuck in SUBMITTING with no error_msg — the one outcome this
+        # whole branch exists to prevent. Nothing is swallowed: the type and
+        # message land on the row.
+        try:
+            say("building the cover letter PDF")
+            letter.pdf = compile_letter(result.letter, master, job, build_dir(job_id)).pdf
+        except Exception as exc:
+            letter.pdf_error = f"{type(exc).__name__}: {exc}"[-500:]
+
     say(f"dispatching via {channel}")
     if channel == EMAIL:
-        return _apply_email(db, run, job, cfg, cv_pdf, letter_path, letter_text)
-    return _apply_handoff(db, run, job, channel, cv_pdf, letter_path, letter_text)
+        return _apply_email(db, run, job, cfg, cv_pdf, letter)
+    return _apply_handoff(db, run, job, channel, cv_pdf, letter)
 
 
 # --------------------------------------------------------------------------- #
 # Channels
 # --------------------------------------------------------------------------- #
-def _apply_email(db, run, job, cfg, cv_pdf, letter_path, letter_text) -> ApplyOutcome:
+def _apply_email(db, run, job, cfg, cv_pdf, letter: LetterArtifacts) -> ApplyOutcome:
     master = cv_store.get_document(db, cv_store.MASTER_SCOPE)
     name = " ".join(p for p in (master.header.first_name, master.header.last_name) if p).title()
     subject = cfg.apply.email.subject_template.format(
         title=job.title, name=name, company=job.company
     )
 
+    # The letter goes out twice on purpose: as the body, because that is what
+    # gets read in the preview pane, and as a PDF, because that is what gets
+    # filed. Attached only when it built — never a broken or stale one.
+    attachments = [cv_pdf] + ([letter.pdf] if letter.pdf else [])
+
     try:
         email = build_email(
             cfg=cfg.apply,
             to=job.apply_target or "",
             subject=subject,
-            body=letter_text
+            body=letter.text
             or f"Dear Hiring Team at {job.company},\n\nPlease find my CV attached.",
-            attachments=[cv_pdf],
+            attachments=attachments,
         )
     except EmailError as exc:
-        return _fail(db, run, job, EMAIL, cv_pdf, str(exc), letter_path)
+        return _fail(db, run, job, EMAIL, cv_pdf, str(exc), letter)
 
     if email.dry_run:
         # Nothing left the machine, so the job has not been submitted.
         app = _record(
-            db, job, EMAIL, cv_pdf, letter_path, result="dry_run", meta={"email": email.summary()}
+            db, job, EMAIL, cv_pdf, letter, result="dry_run", meta={"email": email.summary()}
         )
         job.status = JobStatus.APPROVED
         _finish(db, run, {"job_id": job.id, "channel": EMAIL, "result": "dry_run"})
@@ -190,7 +234,7 @@ def _apply_email(db, run, job, cfg, cv_pdf, letter_path, letter_text) -> ApplyOu
         detail = send_email(email, get_secrets())
     except EmailError as exc:
         return _fail(
-            db, run, job, EMAIL, cv_pdf, str(exc), letter_path, meta={"email": email.summary()}
+            db, run, job, EMAIL, cv_pdf, str(exc), letter, meta={"email": email.summary()}
         )
 
     app = _record(
@@ -198,7 +242,7 @@ def _apply_email(db, run, job, cfg, cv_pdf, letter_path, letter_text) -> ApplyOu
         job,
         EMAIL,
         cv_pdf,
-        letter_path,
+        letter,
         result="success",
         submitted=True,
         meta={"email": email.summary()},
@@ -216,20 +260,20 @@ def _apply_email(db, run, job, cfg, cv_pdf, letter_path, letter_text) -> ApplyOu
     )
 
 
-def _apply_handoff(db, run, job, channel, cv_pdf, letter_path, letter_text) -> ApplyOutcome:
+def _apply_handoff(db, run, job, channel, cv_pdf, letter: LetterArtifacts) -> ApplyOutcome:
     master = cv_store.get_document(db, cv_store.MASTER_SCOPE)
     handoff = prepare_handoff(
         url=job.apply_target or job.url,
         master=master,
         cv_path=cv_pdf,
-        cover_letter=letter_text,
+        cover_letter=letter.text,
     )
     app = _record(
         db,
         job,
         channel,
         cv_pdf,
-        letter_path,
+        letter,
         result="awaiting_user",
         meta={"handoff": handoff.summary()},
     )
@@ -297,7 +341,7 @@ def _record(
     job: Job,
     channel: str,
     cv_pdf: Path,
-    letter_path: Path | None,
+    letter: LetterArtifacts | None,
     *,
     result: str,
     submitted: bool = False,
@@ -307,15 +351,17 @@ def _record(
     # An application that really went out starts its follow-up clock here. A dry
     # run does not: there is nobody to chase about a message that never left.
     step = first_step(result)
+    letter = letter or LetterArtifacts()
     app = Application(
         job_id=job.id,
         cv_pdf_path=str(cv_pdf),
-        cover_letter_path=str(letter_path) if letter_path else None,
+        cover_letter_path=str(letter.txt) if letter.txt else None,
+        cover_letter_pdf_path=str(letter.pdf) if letter.pdf else None,
         channel=channel,
         result=result,
         error_msg=error,
         submitted_at=vn_now() if submitted else None,
-        meta=meta or {},
+        meta={**(meta or {}), "letter": letter.summary()} if letter.txt else (meta or {}),
         followup_stage=step.stage,
         next_followup_at=step.due_at,
     )
@@ -331,9 +377,11 @@ def _finish(db: Session, run: Run, stats: dict) -> None:
 
 
 def _fail(
-    db, run, job, channel, cv_pdf, reason, letter_path=None, meta: dict | None = None
+    db, run, job, channel, cv_pdf, reason,
+    letter: LetterArtifacts | None = None,
+    meta: dict | None = None,
 ) -> ApplyOutcome:
-    app = _record(db, job, channel, cv_pdf, letter_path, result="failed", error=reason, meta=meta)
+    app = _record(db, job, channel, cv_pdf, letter, result="failed", error=reason, meta=meta)
     job.status = JobStatus.FAILED
     _finish(db, run, {"job_id": job.id, "channel": channel, "result": "failed", "error": reason})
     db.commit()

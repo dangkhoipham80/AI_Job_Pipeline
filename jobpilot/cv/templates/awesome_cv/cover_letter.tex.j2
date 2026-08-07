@@ -1,0 +1,48 @@
+<% include '_preamble.tex.j2' %>
+
+%-------------------------------------------------------------------------------
+% COVER LETTER (SKILL.md §2 step 4)
+%
+% SKILL.md suggests Awesome-CV's \cvletter, but the class vendored in this repo
+% is a trimmed copy with no letter support at all -- no \recipient, no
+% \letteropening, no cvletter environment. So this is SKILL.md's other option, a
+% template of our own, built only from macros the class really defines
+% (\makecvheader, \cvsection, cvparagraph). Same preamble as the CV, so the two
+% documents read as one set.
+%-------------------------------------------------------------------------------
+\begin{document}
+
+\makecvheader[C]
+
+<% if date %>
+{\raggedleft\footnotesize\color{gray}<< date|tex >>\par}
+<% endif %>
+
+\cvsection{<< subject|tex >>}
+
+% Paragraph breaks are written as explicit \par, never as blank lines. Jinja's
+% trim_blocks eats the newline after every `%>`, so a blank line next to a tag
+% silently collapses -- and in LaTeX that is the difference between two
+% paragraphs and one run-on line. It cost a build that compiled fine and read
+% "Ha Noi Dear Hiring Team at ACME".
+\begin{cvparagraph}
+<% if recipient %>
+\textbf{<< recipient|tex >>}<% if recipient_location %> \\ << recipient_location|tex >><% endif %>\par
+\vspace{2.5mm}
+<% endif %>
+<< greeting|tex >>\par
+\vspace{2.5mm}
+<% for para in paragraphs %>
+<< para|tex >>\par
+\vspace{2.5mm}
+<% endfor %>
+<% if learning_note %>
+<< learning_note|tex >>\par
+\vspace{2.5mm}
+<% endif %>
+<< closing|tex >>\par
+<< signature|tex >>
+\end{cvparagraph}
+
+%-------------------------------------------------------------------------------
+\end{document}

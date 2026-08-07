@@ -192,6 +192,11 @@ class ApplicationOut(BaseModel):
     submitted_at: datetime | None
     created_at: datetime | None
     cv_pdf_path: str | None
+    # The letter as sent (text) and as filed (PDF). A non-null text with a null
+    # PDF is a real state — the build failed — and `meta.letter.pdf_error` says
+    # why, so the board can show the reason instead of an unexplained gap.
+    cover_letter_path: str | None = None
+    cover_letter_pdf_path: str | None = None
     apply_target: str | None
     meta: dict = {}
     # Where this application is in the follow-up cadence, and when it's due.
@@ -214,6 +219,8 @@ class ApplicationOut(BaseModel):
             submitted_at=app.submitted_at,
             created_at=app.created_at,
             cv_pdf_path=app.cv_pdf_path,
+            cover_letter_path=app.cover_letter_path,
+            cover_letter_pdf_path=app.cover_letter_pdf_path,
             apply_target=job.apply_target,
             meta=app.meta or {},
             followup_stage=app.followup_stage,
