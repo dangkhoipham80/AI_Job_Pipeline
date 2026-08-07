@@ -301,6 +301,62 @@ class OutcomeStats(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Inbox suggestions (Phase 19)
+# --------------------------------------------------------------------------- #
+class SuggestionOut(BaseModel):
+    """One employer reply and what it looks like it means.
+
+    Carries ``quote`` and ``match_reason`` because the point is that you can
+    overrule it by reading a line, rather than trusting a label.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    job_id: str = ""
+    job_title: str = ""
+    company: str = ""
+    mail_from: str = ""
+    mail_subject: str = ""
+    mail_date: datetime | None = None
+    match_confidence: str = ""
+    match_reason: str = ""
+    verdict: str
+    quote: str = ""
+    round_label: str | None = None
+    status: str
+
+    @classmethod
+    def from_row(cls, row: Any, job: Job | None = None) -> "SuggestionOut":
+        return cls(
+            id=row.id,
+            application_id=row.application_id,
+            job_id=job.id if job else "",
+            job_title=job.title if job else "",
+            company=job.company if job else "",
+            mail_from=row.mail_from or "",
+            mail_subject=row.mail_subject or "",
+            mail_date=row.mail_date,
+            match_confidence=row.match_confidence or "",
+            match_reason=row.match_reason or "",
+            verdict=row.verdict,
+            quote=row.quote or "",
+            round_label=row.round_label,
+            status=row.status,
+        )
+
+
+class InboxSettingsOut(BaseModel):
+    """Whether the sync can run at all, and over what."""
+
+    enabled: bool
+    folder: str
+    since_days: int
+    blocker: str
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration (Phase 8)
 # --------------------------------------------------------------------------- #
 class TaskOut(BaseModel):

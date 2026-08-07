@@ -18,6 +18,7 @@ from __future__ import annotations
 import email
 import imaplib
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import Message
@@ -51,19 +52,37 @@ class MailMessage:
     sender: str
     date: datetime | None
     html: str
+    #: Threading headers. An employer's reply quotes the ``Message-ID`` of what
+    #: we sent, which is the only way to tie a message to an application without
+    #: guessing from names and domains (Phase 19).
+    message_id: str = ""
+    in_reply_to: str = ""
+    references: str = ""
+    #: The text/plain part when the message has one. Kept beside ``html``
+    #: rather than replacing it: the LinkedIn parser needs the markup, and a
+    #: classifier reads better prose without it.
+    text: str = ""
 
     def __repr__(self) -> str:  # keep mail bodies out of logs and tracebacks
         return f"MailMessage(uid={self.uid!r}, subject={self.subject!r})"
 
+    def thread_refs(self) -> set[str]:
+        """Every Message-ID this mail claims to be answering."""
+        return set(_MSG_ID_RE.findall(f"{self.in_reply_to} {self.references}"))
+
+
+#: ``<...>`` ids as they appear in In-Reply-To / References headers.
+_MSG_ID_RE = re.compile(r"<[^<>@\s]+@[^<>\s]+>")
+
 
 class Mailbox(Protocol):
-    """Anything that can hand back recent alert emails. Tests inject a fake."""
+    """Anything that can hand back recent emails. Tests inject a fake."""
 
     def fetch(self, senders: tuple[str, ...], since_days: int, limit: int) -> list[MailMessage]: ...
 
 
-def _best_html(message: Message) -> str:
-    """The HTML part of a message, falling back to plain text."""
+def _bodies(message: Message) -> tuple[str, str]:
+    """``(html, text)`` — whichever parts the message actually carries."""
     html, text = "", ""
     if message.is_multipart():
         for part in message.walk():
@@ -87,6 +106,12 @@ def _best_html(message: Message) -> str:
                 html = body
             else:
                 text = body
+    return html, text
+
+
+def _best_html(message: Message) -> str:
+    """The HTML part, falling back to plain text — what the alert parsers read."""
+    html, text = _bodies(message)
     return html or text
 
 
@@ -134,7 +159,15 @@ class ImapMailbox:
     def fetch(
         self, senders: tuple[str, ...] = LINKEDIN_SENDERS, since_days: int = 14, limit: int = 40
     ) -> list[MailMessage]:
-        """Recent messages from any of ``senders``, newest first."""
+        """Recent messages from any of ``senders``, newest first.
+
+        An **empty** ``senders`` means "from anyone" — which is what reading
+        employer replies needs, because their addresses are exactly what we
+        don't know in advance (Phase 19). Nothing is classified or sent
+        anywhere on the strength of this: ``apply.inbox`` matches every message
+        against your applications locally first, and only the ones that already
+        belong to one are ever looked at further.
+        """
         since = (vn_now() - timedelta(days=since_days)).strftime("%d-%b-%Y")
         conn = self._connect()
         messages: list[MailMessage] = []
@@ -142,8 +175,9 @@ class ImapMailbox:
             # readonly=True: reading your mail must never mark it seen or move it.
             conn.select(self.folder, readonly=True)
             uids: list[bytes] = []
-            for sender in senders:
-                status, data = conn.search(None, "FROM", f'"{sender}"', "SINCE", since)
+            searches = [("FROM", f'"{s}"', "SINCE", since) for s in senders] or [("SINCE", since)]
+            for terms in searches:
+                status, data = conn.search(None, *terms)
                 if status == "OK" and data and data[0]:
                     uids.extend(data[0].split())
 
@@ -153,13 +187,18 @@ class ImapMailbox:
                 if status != "OK" or not payload or not isinstance(payload[0], tuple):
                     continue
                 parsed = email.message_from_bytes(payload[0][1])
+                html, text = _bodies(parsed)
                 messages.append(
                     MailMessage(
                         uid=uid.decode(),
                         subject=_decode_header(parsed.get("Subject")),
                         sender=_decode_header(parsed.get("From")),
                         date=_parse_date(parsed.get("Date")),
-                        html=_best_html(parsed),
+                        html=html or text,
+                        message_id=(parsed.get("Message-ID") or "").strip(),
+                        in_reply_to=(parsed.get("In-Reply-To") or "").strip(),
+                        references=(parsed.get("References") or "").strip(),
+                        text=text,
                     )
                 )
         except imaplib.IMAP4.error as exc:

@@ -16,6 +16,7 @@ import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { FollowUps } from "@/components/FollowUps";
 import { OutcomeTracker } from "@/components/OutcomeTracker";
+import { InboxReplies } from "@/components/InboxReplies";
 import { isActive, useTask } from "@/hooks/useTask";
 import { relativeTime } from "@/lib/format";
 import { TaskProgress } from "@/components/TaskProgress";
@@ -51,6 +52,8 @@ export function Applications({ version }: { version: number }) {
   const { data, loading, error, refetch } = useApi(() => api.applications(), [version]);
   const settings = useApi(() => api.applySettings(), []);
   const followups = useApi(() => api.followups(), [version]);
+  const suggestions = useApi(() => api.inboxSuggestions(), [version]);
+  const inboxSettings = useApi(() => api.inboxSettings(), []);
   const [busy, setBusy] = useState<number | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -111,6 +114,18 @@ export function Applications({ version }: { version: number }) {
           <span>{actionError}</span>
         </Card>
       )}
+
+      {/* Replies first: what an employer said outranks a reminder to chase
+          one, and accepting a suggestion often removes a follow-up below. */}
+      <InboxReplies
+        items={suggestions.data ?? []}
+        settings={inboxSettings.data ?? null}
+        onChange={() => {
+          suggestions.refetch();
+          followups.refetch();
+          refetch();
+        }}
+      />
 
       <FollowUps
         items={followups.data ?? []}
@@ -256,7 +271,9 @@ function ApplicationCard({
         <span>{relativeTime(app.submitted_at ?? app.created_at)}</span>
       </div>
 
-      {email && (
+      {/* Only when there is an address to show: an empty arrow reads as a
+          broken card rather than as "this row predates the field". */}
+      {email?.to && (
         <p className="mt-2 rounded-md border bg-surface-2/60 px-2 py-1 text-[11px] leading-relaxed text-ink-muted">
           {email.redirected ? (
             <>
@@ -268,7 +285,10 @@ function ApplicationCard({
               → <span className="font-mono text-ink">{email.to}</span>
             </>
           )}
-          {email.attachments.length > 0 && <> · {email.attachments.join(", ")}</>}
+          {/* Optional chaining because `meta` is JSONB written by whichever
+              version of the dispatcher ran. One row missing a key should not
+              blank the entire board, which is what an unguarded read does. */}
+          {email.attachments?.length ? <> · {email.attachments.join(", ")}</> : null}
         </p>
       )}
 

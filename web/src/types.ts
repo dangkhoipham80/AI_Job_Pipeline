@@ -366,6 +366,41 @@ export interface OutcomeStats {
   offer_rate: number | null;
 }
 
+/* Inbox suggestions (Phase 19) — mirrors jobpilot/apply/inbox.py ------------ */
+
+/** How a message was tied to an application. `thread` is certain; `company` is
+ *  a guess from the sender's domain, and the card says so. */
+export type MatchConfidence = "thread" | "address" | "domain" | "company";
+
+export interface InboxSuggestion {
+  id: number;
+  application_id: number;
+  job_id: string;
+  job_title: string;
+  company: string;
+  mail_from: string;
+  mail_subject: string;
+  mail_date: string | null;
+  match_confidence: MatchConfidence | "";
+  match_reason: string;
+  /** The classifier's answer. Pending rows only ever carry a proposable
+   *  outcome, but the column also records the two honest ways of saying "not
+   *  an outcome", so the type says so too. */
+  verdict: OutcomeType | "auto_ack" | "unrelated";
+  /** The sentence the verdict was read off, copied from the message. */
+  quote: string;
+  round_label: string | null;
+  status: "pending" | "accepted" | "dismissed" | "ignored";
+}
+
+export interface InboxSettings {
+  enabled: boolean;
+  folder: string;
+  since_days: number;
+  /** Why the sync can't run, or "" when it can. */
+  blocker: string;
+}
+
 export interface ApplySettings {
   email_enabled: boolean;
   email_dry_run: boolean;

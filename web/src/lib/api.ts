@@ -3,6 +3,8 @@ import type {
   CrawlSetupInfo,
   Application,
   ApplicationEvent,
+  InboxSettings,
+  InboxSuggestion,
   ApplySettings,
   OutcomeType,
   CvCompileResult,
@@ -145,6 +147,16 @@ export const api = {
   /** Undo a mis-click. The row stays; the stage rewinds. */
   retractEvent: (id: number, eventId: number) =>
     req<Application>(`/applications/${id}/events/${eventId}`, { method: "DELETE" }),
+
+  /* Inbox sync (Phase 19). Reading the mailbox and classifying what matched
+     can't answer inside a request, so it returns a task like crawling does. */
+  syncInbox: () => req<Task>("/inbox/sync", { method: "POST" }),
+  inboxSettings: () => req<InboxSettings>("/inbox/settings"),
+  inboxSuggestions: () => req<InboxSuggestion[]>("/inbox/suggestions"),
+  acceptSuggestion: (id: number) =>
+    req<Application>(`/inbox/suggestions/${id}/accept`, { method: "POST" }),
+  dismissSuggestion: (id: number) =>
+    req<InboxSuggestion>(`/inbox/suggestions/${id}/dismiss`, { method: "POST" }),
 
   /* Orchestration (Phase 8). Crawling can't answer inside a request, so it
      returns a task and progress arrives over the WebSocket. */

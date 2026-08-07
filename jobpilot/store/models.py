@@ -139,6 +139,11 @@ class Application(Base):
         cascade="all, delete-orphan",
         order_by="ApplicationEvent.id",
     )
+    suggestions: Mapped[list[InboxSuggestion]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="InboxSuggestion.id",
+    )
 
 
 class ApplicationEvent(Base):
@@ -189,6 +194,45 @@ class ApplicationEvent(Base):
     )
 
     application: Mapped[Application] = relationship(back_populates="events")
+
+
+class InboxSuggestion(Base):
+    """A message from your mailbox, and what it looks like it means (Phase 19).
+
+    A suggestion, never an outcome. It carries the sentence it was judged on so
+    you can overrule the label by reading one line, and it only becomes an
+    ``application_events`` row when you accept it.
+
+    ``mail_key`` is the message's own ``Message-ID`` rather than its IMAP uid:
+    uids are per-folder and are re-issued when the server's UIDVALIDITY changes,
+    so keying on one would re-classify the whole mailbox — and bill for it —
+    the first time that happened.
+    """
+
+    __tablename__ = "inbox_suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey(_APPLICATIONS_ID, ondelete="CASCADE"), index=True
+    )
+    mail_key: Mapped[str] = mapped_column(String(512), index=True)
+    mail_from: Mapped[str] = mapped_column(String(320), default="")
+    # Text, not VARCHAR: a subject is written by a stranger and Postgres would
+    # be the one to find out it was too long, mid-flush, taking the batch with it.
+    mail_subject: Mapped[str] = mapped_column(Text, default="")
+    mail_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # How the message was tied to this application: thread|address|domain|company.
+    match_confidence: Mapped[str] = mapped_column(String(16), default="")
+    match_reason: Mapped[str] = mapped_column(Text, default="")
+    # The proposed outcome, or auto_ack / unrelated when it isn't one.
+    verdict: Mapped[str] = mapped_column(String(32), index=True)
+    quote: Mapped[str] = mapped_column(Text, default="")
+    round_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # pending | accepted | dismissed | ignored (not an outcome, so never offered)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    application: Mapped[Application] = relationship(back_populates="suggestions")
 
 
 class Edit(Base):
