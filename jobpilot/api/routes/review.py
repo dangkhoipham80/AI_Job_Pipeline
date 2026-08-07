@@ -3,26 +3,30 @@
 Registered **before** ``routes.jobs`` in the app: that router's
 ``GET /{job_id:path}`` is greedy and would otherwise swallow ``/jobs/x/review``.
 
-Tailoring is synchronous — a Claude call plus a Docker LaTeX build, so tens of
-seconds. Fine for a local single-user control plane; Phase 8 moves it behind the
-job queue.
+Tailoring is a Claude call plus a Docker LaTeX build — tens of seconds to a
+couple of minutes. It runs on the task queue, so ``POST .../tailor`` answers 202
+with a task id and progress arrives over the WebSocket as ``task_updated``.
+
+What is *not* deferred: everything that can be refused by looking at the
+database. A job in the wrong state, or an exhausted edit budget, is still an
+immediate 409 — queueing a task that was always going to fail would turn a clear
+error into a minute of waiting for a bad one.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import JobDetailOut, ReviewOut, TailorIn, TailorOut
+from jobpilot.api.schemas import JobDetailOut, ReviewOut, TailorIn, TaskOut
 from jobpilot.api.ws import manager
 from jobpilot.cv.compile import build_dir
+from jobpilot.orchestrator import TaskBusy, queue, tailor_body
 from jobpilot.store.models import Job
 from jobpilot.tailor import service
-from jobpilot.tailor.build import BuildError
-from jobpilot.tailor.engine import TailorEngine, TailorError, default_engine
-from jobpilot.tailor.guard import GuardrailViolation
+from jobpilot.tailor.engine import TailorEngine, default_engine
 
 router = APIRouter(prefix="/jobs", tags=["review"], dependencies=[Depends(require_token)])
 
@@ -32,56 +36,54 @@ def get_engine() -> TailorEngine:
     return default_engine()
 
 
-async def _run(
+def _queue_tailor(
     job_id: str, db: Session, engine: TailorEngine, instruction: str | None
-) -> TailorOut:
+) -> JSONResponse:
     try:
-        outcome = service.tailor_job(db, job_id, engine, instruction=instruction)
+        job, round_no = service.check_tailorable(db, job_id, instruction)
     except service.TailorRefused as exc:
+        status = 404 if "not found" in str(exc) else 409
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    label = f"{'edit' if instruction else 'tailor'} · {job.title or job_id}"
+    if instruction:
+        label += f" (round {round_no})"
+    # The engine is resolved here, not in the worker, so a dependency override
+    # in tests still reaches the task body.
+    try:
+        task = queue.submit(
+            "tailor",
+            tailor_body(job_id, engine, instruction),
+            label=label,
+            job_id=job_id,
+            exclusive=True,
+        )
+    except TaskBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except GuardrailViolation as exc:
-        # The agent tried to put unsupported claims on the CV — surface it loudly.
-        raise HTTPException(status_code=422, detail=f"guardrail: {exc}") from exc
-    except (TailorError, BuildError) as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    await manager.broadcast({"type": "job_updated", "id": job_id, "status": "REVIEW"})
-    await manager.broadcast(
-        {"type": "tailor_done", "id": job_id, "version": outcome.version, "pages": outcome.pages}
-    )
-    return TailorOut(
-        job_id=outcome.job_id,
-        version=outcome.version,
-        round=outcome.round,
-        attempts=outcome.attempts,
-        pages=outcome.pages,
-        match_score=outcome.plan.match_score,
-        plan=outcome.plan.model_dump(mode="json"),
-        diff=outcome.diff.model_dump(mode="json"),
-    )
+    return JSONResponse(status_code=202, content=TaskOut(**task.to_dict()).model_dump(mode="json"))
 
 
-@router.post("/{job_id:path}/tailor", response_model=TailorOut)
-async def tailor(
+@router.post("/{job_id:path}/tailor", response_model=TaskOut, status_code=202)
+def tailor(
     job_id: str,
     db: Session = Depends(get_db),
     engine: TailorEngine = Depends(get_engine),
-) -> TailorOut:
-    """Tailor the Master CV to this job and build the PDF (SHORTLISTED -> REVIEW)."""
-    return await _run(job_id, db, engine, None)
+) -> JSONResponse:
+    """Queue a tailor round for this job (SHORTLISTED -> REVIEW when it lands)."""
+    return _queue_tailor(job_id, db, engine, None)
 
 
-@router.post("/{job_id:path}/edit", response_model=TailorOut)
-async def edit(
+@router.post("/{job_id:path}/edit", response_model=TaskOut, status_code=202)
+def edit(
     job_id: str,
     body: TailorIn,
     db: Session = Depends(get_db),
     engine: TailorEngine = Depends(get_engine),
-) -> TailorOut:
-    """Re-tailor with a reviewer instruction (SKILL.md §4 edit loop)."""
+) -> JSONResponse:
+    """Queue a re-tailor with a reviewer instruction (SKILL.md §4 edit loop)."""
     if not body.instruction.strip():
         raise HTTPException(status_code=422, detail="instruction must not be empty")
-    return await _run(job_id, db, engine, body.instruction.strip())
+    return _queue_tailor(job_id, db, engine, body.instruction.strip())
 
 
 @router.get("/{job_id:path}/review", response_model=ReviewOut)

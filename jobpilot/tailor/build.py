@@ -23,7 +23,8 @@ class BuildError(RuntimeError):
 @dataclass
 class BuildResult:
     pdf: Path
-    pages: int
+    #: None when the page count could not be established (see ``build_cv``).
+    pages: int | None
     log_tail: str = ""
 
 
@@ -59,6 +60,13 @@ def _pages_from_pdf(pdf_path: Path) -> int | None:
     return max(counts) if counts else None
 
 
+def page_summary(pages: int | None) -> str:
+    """One line about the page budget, for the CLI. A CV should be one page."""
+    if pages is None:
+        return "page count unknown — pip install -e '.[cv]' for pypdf"
+    return "OK: 1 page" if pages == 1 else f"WARNING: {pages} pages (CV should be 1)"
+
+
 def build_cv(
     work_dir: Path | str,
     entry: str = "cv.tex",
@@ -84,5 +92,10 @@ def build_cv(
         tail = (proc.stdout or "")[-1500:] + "\n" + (proc.stderr or "")[-1500:]
         raise BuildError(f"LaTeX build failed (rc={proc.returncode}).\n{tail}")
 
-    pages = _pages_from_pdf(pdf) or _pages_from_log(work_dir / f"{stem}.log") or 0
+    # None when nothing could read it — "unknown" and "zero pages" are different
+    # claims, and a CV that built fine should not be badged as 0 pages in red.
+    # That is the live failure mode when pypdf is missing: xelatex writes its PDF
+    # with compressed object streams, so the regex fallback finds no /Type /Page,
+    # and the builder image doesn't leave a .log behind either.
+    pages = _pages_from_pdf(pdf) or _pages_from_log(work_dir / f"{stem}.log")
     return BuildResult(pdf=pdf, pages=pages, log_tail=(proc.stdout or "")[-500:])

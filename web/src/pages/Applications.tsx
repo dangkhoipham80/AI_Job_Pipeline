@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -14,7 +14,9 @@ import {
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { FollowUps } from "@/components/FollowUps";
+import { isActive, useTask } from "@/hooks/useTask";
 import { relativeTime } from "@/lib/format";
+import { TaskProgress } from "@/components/TaskProgress";
 import { Badge, Button, Card, CardBody, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { Application, ApplyResult, ApplySettings } from "@/types";
@@ -48,8 +50,11 @@ export function Applications({ version }: { version: number }) {
   const settings = useApi(() => api.applySettings(), []);
   const followups = useApi(() => api.followups(), [version]);
   const [busy, setBusy] = useState<number | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const task = useTask(taskId, version);
 
+  /** Confirm and report-failure: plain state changes, done when the call returns. */
   const act = useCallback(
     async (app: Application, fn: () => Promise<unknown>) => {
       setBusy(app.id);
@@ -66,6 +71,27 @@ export function Applications({ version }: { version: number }) {
     [refetch],
   );
 
+  /** Re-dispatching is queued, so the card stays busy until the task lands. */
+  const retry = useCallback(async (app: Application) => {
+    setBusy(app.id);
+    setActionError(null);
+    try {
+      setTaskId((await api.applyJob(app.job_id)).id);
+    } catch (e) {
+      setBusy(null);
+      setActionError(e instanceof ApiError ? e.message : "Request failed");
+    }
+  }, []);
+
+  const landed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!task || isActive(task) || landed.current === task.id) return;
+    landed.current = task.id;
+    setBusy(null);
+    void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task]);
+
   return (
     <div className="animate-fade-up space-y-4">
       <div>
@@ -76,6 +102,7 @@ export function Applications({ version }: { version: number }) {
       </div>
 
       {settings.data && <GateBanner settings={settings.data} />}
+      {task && <TaskProgress task={task} />}
       {actionError && (
         <Card className="flex items-start gap-2 border-critical/40 bg-critical/5 p-3 text-sm">
           <AlertTriangle size={15} className="mt-0.5 shrink-0 text-critical" />
@@ -131,7 +158,7 @@ export function Applications({ version }: { version: number }) {
                         const reason = window.prompt("What went wrong?") ?? "";
                         if (reason.trim()) act(app, () => api.reportFailure(app.job_id, reason));
                       }}
-                      onRetry={() => act(app, () => api.applyJob(app.job_id))}
+                      onRetry={() => retry(app)}
                     />
                   ))}
                 </div>

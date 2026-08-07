@@ -181,7 +181,8 @@ export interface AtsReport {
 export interface CvCompileResult {
   scope: string;
   version: number;
-  pages: number;
+  /** Null when the build worked but the page count couldn't be read. */
+  pages: number | null;
   pdf_url: string;
   /** `null` means not checked (no PDF text extractor installed), not passed. */
   ats: AtsReport | null;
@@ -232,17 +233,6 @@ export interface CvDiff {
   sections: SectionDiff[];
 }
 
-export interface TailorResult {
-  job_id: string;
-  version: number;
-  round: number;
-  attempts: number;
-  pages: number | null;
-  match_score: number;
-  plan: TailorPlan;
-  diff: CvDiff;
-}
-
 export interface ReviewData {
   job_id: string;
   version: number;
@@ -280,16 +270,6 @@ export interface HandoffSummary {
   fields: Record<string, string>;
   prefilled: boolean;
   note: string;
-}
-
-export interface ApplyOutcome {
-  job_id: string;
-  channel: ApplyChannel;
-  result: ApplyResult;
-  detail: string;
-  application_id: number | null;
-  email: EmailSummary | null;
-  handoff: HandoffSummary | null;
 }
 
 export interface Application {
@@ -338,15 +318,45 @@ export interface CrawlSiteResult {
   fresh: number;
 }
 
+/**
+ * What a finished task produced. Deliberately thin — `/tasks` returns fifty of
+ * these at once, so the heavy artifacts stay where they already live: a tailor
+ * round's plan and diff come from `GET /jobs/{id}/review`, an application's
+ * email and handoff details from the Applications board.
+ */
+export interface TaskResult {
+  /* crawl */
+  sites?: CrawlSiteResult[];
+  totals?: Record<string, number>;
+  query?: string;
+  /* tailor */
+  version?: number;
+  round?: number;
+  attempts?: number;
+  pages?: number | null;
+  match_score?: number;
+  gaps?: number;
+  /* apply — `result` is the field that matters: a finished task can still mean
+     nothing was sent (dry_run), or that it's now your turn (awaiting_user). */
+  channel?: ApplyChannel;
+  result?: ApplyResult;
+  detail?: string;
+  application_id?: number | null;
+}
+
 export interface Task {
   id: string;
+  /** crawl | tailor | apply */
   kind: string;
   label: string;
   job_id: string | null;
   status: TaskStatus;
   progress: string;
-  result: { sites?: CrawlSiteResult[]; totals?: Record<string, number>; query?: string };
+  result: TaskResult;
   error: string | null;
+  /** Exception class name. `GuardrailViolation` means the agent tried to claim
+      something the Master CV doesn't support — louder than a build failure. */
+  error_kind: string | null;
   created_at: string | null;
   started_at: string | null;
   finished_at: string | null;

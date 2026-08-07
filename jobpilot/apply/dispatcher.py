@@ -20,6 +20,7 @@ board as a success.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,12 +85,13 @@ def _write_letter(job_id: str, text: str) -> Path:
     return path
 
 
-def apply_job(
-    db: Session,
-    job_id: str,
-    letter_engine: LetterEngine | None = None,
-) -> ApplyOutcome:
-    """Dispatch one application. Raises ``ApplyRefused`` for bad state."""
+def check_appliable(db: Session, job_id: str) -> tuple[Job, Path]:
+    """Everything that can be refused before any slow work starts.
+
+    The API calls this in the request so "no CV built yet" is still an immediate
+    409 rather than a task that fails a minute later; ``apply_job`` calls it too,
+    because the job can move between queueing and running.
+    """
     job = db.get(Job, job_id)
     if job is None:
         raise ApplyRefused(f"job {job_id!r} not found")
@@ -102,6 +104,23 @@ def apply_job(
     cv_pdf = cv_pdf_for(job_id)
     if cv_pdf is None:
         raise ApplyRefused("no tailored CV has been built for this job yet")
+    return job, cv_pdf
+
+
+def apply_job(
+    db: Session,
+    job_id: str,
+    letter_engine: LetterEngine | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> ApplyOutcome:
+    """Dispatch one application. Raises ``ApplyRefused`` for bad state.
+
+    ``progress`` names the stage, because the two slow steps have very different
+    stakes: writing a cover letter is a Claude call, sending is the step that
+    actually puts mail in front of an employer.
+    """
+    say = progress or (lambda _message: None)
+    job, cv_pdf = check_appliable(db, job_id)
 
     cfg = get_config()
     channel = resolve_channel(job)
@@ -114,6 +133,7 @@ def apply_job(
     letter_text = ""
     if letter_engine is not None:
         try:
+            say("writing the cover letter")
             master = cv_store.get_document(db, cv_store.MASTER_SCOPE)
             result = letter_engine.write(master, job, latest_plan(db, job_id))
             letter_text = result.letter.body()
@@ -121,6 +141,7 @@ def apply_job(
         except (TailorError, GuardrailViolation) as exc:
             return _fail(db, run, job, channel, cv_pdf, f"cover letter: {exc}")
 
+    say(f"dispatching via {channel}")
     if channel == EMAIL:
         return _apply_email(db, run, job, cfg, cv_pdf, letter_path, letter_text)
     return _apply_handoff(db, run, job, channel, cv_pdf, letter_path, letter_text)

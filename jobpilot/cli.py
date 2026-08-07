@@ -73,7 +73,7 @@ def cmd_config(_: argparse.Namespace) -> int:
 
 def cmd_build(args: argparse.Namespace) -> int:
     from jobpilot.config import REPO_ROOT
-    from jobpilot.tailor.build import BuildError, build_cv
+    from jobpilot.tailor.build import BuildError, build_cv, page_summary
 
     work_dir = args.dir or str(REPO_ROOT)
     try:
@@ -81,8 +81,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     except BuildError as exc:
         print(f"BUILD FAILED: {exc}", file=sys.stderr)
         return 1
-    ok = "OK: 1 page" if result.pages == 1 else f"WARNING: {result.pages} pages (CV should be 1)"
-    print(f"Built {result.pdf}  [{ok}]")
+    print(f"Built {result.pdf}  [{page_summary(result.pages)}]")
     return 0
 
 
@@ -92,7 +91,7 @@ def cmd_cv(args: argparse.Namespace) -> int:
     from jobpilot.cv.compile import build_dir, compile_document
     from jobpilot.cv.render import write_document
     from jobpilot.store.db import session_scope
-    from jobpilot.tailor.build import BuildError
+    from jobpilot.tailor.build import BuildError, page_summary
 
     with session_scope() as db:
         if args.cv_command == "seed":
@@ -156,8 +155,7 @@ def cmd_cv(args: argparse.Namespace) -> int:
     except BuildError as exc:
         print(f"BUILD FAILED: {exc}", file=sys.stderr)
         return 1
-    ok = "OK: 1 page" if result.pages == 1 else f"WARNING: {result.pages} pages (CV should be 1)"
-    print(f"Built {result.pdf}  [{ok}]")
+    print(f"Built {result.pdf}  [{page_summary(result.pages)}]")
     return 0
 
 

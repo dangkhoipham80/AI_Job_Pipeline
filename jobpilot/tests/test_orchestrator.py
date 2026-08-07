@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 
 import pytest
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 from jobpilot.api.deps import get_db
 from jobpilot.api.main import app as fastapi_app
 from jobpilot.config import Config, deep_merge, get_secrets
-from jobpilot.orchestrator import DONE, FAILED, RUNNING, TaskQueue
+from jobpilot.orchestrator import DONE, FAILED, RUNNING, TaskBusy, TaskQueue
 from jobpilot.store.models import Run
 from jobpilot.timeutil import vn_now
 
@@ -63,8 +64,68 @@ def test_a_failing_task_is_data_not_a_crash(q):
 
     task = _wait(q, q.submit("crawl", boom, label="test").id)
     assert task.status == FAILED
-    assert task.error == "RuntimeError: site is down"
+    # The message and the exception type are separate fields: the UI shows one
+    # and decides how loudly to shout based on the other.
+    assert task.error == "site is down" and task.error_kind == "RuntimeError"
     assert task.finished_at is not None
+
+
+def test_the_pool_is_rebuilt_after_a_shutdown(q):
+    """The queue is a process-wide singleton tied to the API's lifespan, and a
+    ThreadPoolExecutor cannot be restarted. Without rebuilding, a second lifespan
+    in the same process leaves every later task queued forever — running, to the
+    dashboard, but never actually running."""
+    assert _wait(q, q.submit("crawl", lambda p: {"n": 1}, label="before").id).status == DONE
+    q.shutdown(wait=True)
+    assert _wait(q, q.submit("crawl", lambda p: {"n": 2}, label="after").id).result == {"n": 2}
+
+
+def test_shutdown_marks_cancelled_work_failed_rather_than_leaving_it_queued(q):
+    """A task whose worker was cancelled is not waiting for anything."""
+    started, release = threading.Event(), threading.Event()
+
+    def hold(progress):
+        started.set()
+        release.wait(5)
+        return {}
+
+    q.submit("crawl", hold, label="running")
+    started.wait(5)
+    pending = q.submit("crawl", lambda p: {}, label="pending")
+
+    q.shutdown(wait=False)
+    release.set()
+    assert q.get(pending.id).status == FAILED
+    assert "shut down" in q.get(pending.id).error
+
+
+def test_an_exclusive_submit_refuses_a_second_task_for_the_same_job(q):
+    """The check and the insert happen under one lock. Done in the caller, two
+    requests could both read "nothing running" and both queue a round — two
+    tailors writing the same build directory."""
+    release = threading.Event()
+    q.submit("tailor", lambda p: release.wait(5), label="a", job_id="itviec:1", exclusive=True)
+    try:
+        with pytest.raises(TaskBusy) as exc:
+            q.submit("apply", lambda p: {}, label="b", job_id="itviec:1", exclusive=True)
+        assert "already" in str(exc.value)
+        # A different job is unaffected, and a non-exclusive submit still goes.
+        q.submit("tailor", lambda p: {}, label="c", job_id="itviec:2", exclusive=True)
+        q.submit("crawl", lambda p: {}, label="d", job_id="itviec:1")
+    finally:
+        release.set()
+
+
+def test_active_can_be_narrowed_to_one_job(q):
+    """What the per-job guard is built on: a tailor round for job A must not
+    block job B, but must block a second round for A."""
+    release = threading.Event()
+    q.submit("tailor", lambda p: release.wait(5), label="a", job_id="itviec:1")
+    try:
+        assert [t.job_id for t in q.active(job_id="itviec:1")] == ["itviec:1"]
+        assert q.active(job_id="itviec:2") == []
+    finally:
+        release.set()
 
 
 def test_status_is_written_last_so_finished_tasks_are_fully_populated(q):

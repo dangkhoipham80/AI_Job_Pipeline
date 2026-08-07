@@ -209,13 +209,14 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 7 | Slack — **client thuần của REST API**, backend không biết gì về Slack | `slack/` |
 | 8 | `TaskQueue` 1 worker + trang Runs/Settings (`config.local.yaml` overlay) | `orchestrator.py`, `config.py` |
 | 9 | TopCV + VietnamWorks chạy thật; JSON-LD `JobPosting` + nhận diện theo giá trị dùng chung | `crawler/jsonld.py`, `vietnam.py` |
+| 10 | Tailor/apply rời request path → **202 + task**; guard 1 task/1 job nằm trong `submit()` | `orchestrator.py`, `tailor/service.py` |
 | 11 | Phân trang nhiều trang + `FeedScraper` (RSS/JSON) + WeWorkRemotely/Arbeitnow | `crawler/base.py`, `feed.py` |
 | 12 | ATS adapter tier-3 — 1 adapter phủ mọi công ty dùng Greenhouse/Lever | `crawler/ats.py` |
 | 13 | Máy đọc được PDF không (text layer, **không chấm điểm**) | `cv/ats.py` |
 | 14 | Giải thích `match_score` + cờ chất lượng tin (`no_jd`/`thin_jd`/`stale`/`undated`) | `crawler/quality.py` |
 | 15 | Nhắc follow-up sau khi nộp — hiện trên board, **không tự gửi** | `apply/followup.py` |
 
-491 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
+505 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
@@ -245,9 +246,10 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 - **Fetch strategy**: `PlaywrightFetcher` load bằng `domcontentloaded` rồi *cố* chờ `networkidle` trong 6s và bỏ qua nếu timeout. Chờ `networkidle` như điều kiện load là bẫy: job board chạy analytics/socket không bao giờ im, trang render xong nhưng `goto` treo tới timeout rồi fail cả crawl (đúng lỗi ITviec gặp). Từ Phase 11 nó **raise theo status code** — trang chặn (403/429) là một *trang* hợp lệ với parser, nên nếu không chặn ở tầng fetch thì nó lặng lẽ thành "0 job".
 - **Chọn fetcher theo thứ site phục vụ, không theo thói quen**: `HttpFetcher` cho document (RSS/JSON/HTML server-render), `PlaywrightFetcher` cho app (ITviec/VNW). Đừng truyền 1 fetcher dùng chung cho mọi scraper trong production — `build_scrapers(fetcher=...)` chỉ dành cho test, vì browser sẽ bọc JSON thành `<pre>` và feed parser vỡ.
 - **`infer_level` vẫn quét cả JD**, nên một JD nhắc "we hire senior engineers" có thể kéo job mid thành senior. Đã sửa phần substring (Phase 11) nhưng phạm vi quét thì chưa thu hẹp — thu về title-only sẽ mất các job VN ghi "thực tập sinh" trong body.
-- **Tailor/apply vẫn chạy đồng bộ** trong request (~30–60s). `TaskQueue` đã có sẵn và generic — chuyển sang background chủ yếu là việc của frontend (poll/WS thay vì await response).
 - **CV Studio**: chưa có HTML live preview, theme gallery, raw LaTeX mode (Monaco), diff giữa 2 version bất kỳ. `tex_snapshot` đã lưu mỗi version nên diff làm sau rất nhẹ.
 - **Cover letter** mới ở dạng text (dùng làm body email); chưa render `.tex`/PDF như SKILL.md §2 mô tả.
+- **Cần `pip install -e '.[cv]'`** cho `pypdf`, nếu không page count trả `None` (badge "1 trang" biến mất, không còn cảnh báo CV tràn 2 trang). Build PDF vẫn chạy bình thường — chỉ mất phần đếm trang.
+- **Queue vẫn 1 worker**: tailor xếp sau một crawl đang chạy sẽ đứng `queued` vài phút. Đúng nghĩa "queued", nhưng nếu thấy vướng thì nâng `max_workers` — task body đã mở session riêng nên an toàn về mặt DB.
 - **Chưa verify được** (thiếu credential, không phải thiếu code): gọi Claude thật (cần `ANTHROPIC_API_KEY`), gửi lên Slack workspace thật (cần Slack app + 3 token).
 - **Đã verify trên môi trường thật**: `alembic upgrade head` chạy sạch 3 migration lên **PostgreSQL 17 local** (schema `jobpilot`, GIN index, enum `job_status` đầy đủ); toàn bộ 8 trang web chạy trên Postgres thật, không lỗi console; Compile PDF từ CV Studio và tailor→PDF đều qua Docker LaTeX thật.
 - **Lưu ý khi chụp/screenshot UI**: headless Chrome **không có PDF viewer**, nên khung preview PDF sẽ trống (`net::ERR_ABORTED` trên blob URL). Đó là giới hạn của headless chứ không phải bug — chạy `headless=False` để kiểm tra thật.

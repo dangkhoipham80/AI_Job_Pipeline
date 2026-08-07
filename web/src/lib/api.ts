@@ -2,7 +2,6 @@ import type {
   CrawlRequest,
   CrawlSetupInfo,
   Application,
-  ApplyOutcome,
   ApplySettings,
   CvCompileResult,
   CvDocument,
@@ -17,7 +16,6 @@ import type {
   RunRecord,
   Settings,
   Stats,
-  TailorResult,
   Task,
 } from "@/types";
 
@@ -95,11 +93,12 @@ export const api = {
     return URL.createObjectURL(await res.blob());
   },
 
-  /* Tailor + CV Review (Phase 5). Tailoring is slow — a Claude call plus a
-     Docker LaTeX build — so callers should show progress, not a spinner-less wait. */
-  tailor: (id: string) => req<TailorResult>(`${jobPath(id)}/tailor`, { method: "POST" }),
+  /* Tailor + CV Review (Phase 5). Both run on the queue: the response is a
+     task, and what it produced arrives via `review()` once it finishes.
+     Follow it with `useTask` — the WebSocket pushes every step. */
+  tailor: (id: string) => req<Task>(`${jobPath(id)}/tailor`, { method: "POST" }),
   editCv: (id: string, instruction: string) =>
-    req<TailorResult>(`${jobPath(id)}/edit`, {
+    req<Task>(`${jobPath(id)}/edit`, {
       method: "POST",
       body: JSON.stringify({ instruction }),
     }),
@@ -107,10 +106,11 @@ export const api = {
   approve: (id: string) => req<JobDetail>(`${jobPath(id)}/approve`, { method: "POST" }),
   reject: (id: string) => req<JobDetail>(`${jobPath(id)}/reject`, { method: "POST" }),
 
-  /* Apply (Phase 6). `result` on the response says what actually happened —
-     a 200 can still mean "nothing was sent" (dry run) or "your turn" (portal). */
+  /* Apply (Phase 6). Also queued. `task.result.result` says what actually
+     happened — a finished task can still mean "nothing was sent" (dry run) or
+     "your turn" (portal), and neither is a success. */
   applyJob: (id: string, coverLetter?: boolean) =>
-    req<ApplyOutcome>(`${jobPath(id)}/apply`, {
+    req<Task>(`${jobPath(id)}/apply`, {
       method: "POST",
       body: JSON.stringify({ cover_letter: coverLetter ?? null }),
     }),

@@ -77,6 +77,19 @@ def _require_bolt():
     return App, SocketModeHandler
 
 
+def is_queued_task(result: object) -> bool:
+    """True when an endpoint answered 202 with a background task rather than a job.
+
+    Both shapes are dicts with a ``status``; a task's is one of the queue's four
+    words, and only a task carries ``kind`` alongside it.
+    """
+    return (
+        isinstance(result, dict)
+        and "kind" in result
+        and result.get("status") in {"queued", "running", "done", "failed"}
+    )
+
+
 def build_app(cfg: SlackConfig, client: JobPilotClient):
     """Wire the button handlers. Split out so tests can inspect the dispatch table."""
     App, _ = _require_bolt()
@@ -89,8 +102,20 @@ def build_app(cfg: SlackConfig, client: JobPilotClient):
             ack()
             job_id = body["actions"][0]["value"]
             try:
-                getattr(client, method)(job_id)
+                result = getattr(client, method)(job_id)
                 job = client.job(job_id)
+                if is_queued_task(result):
+                    # Tailor and apply run on the queue now. Reporting the job's
+                    # current status here would be a lie — the work hasn't
+                    # started. The review/apply card arrives via the WS mirror.
+                    say(
+                        text=f"{method} queued",
+                        blocks=[
+                            B.section(f"*{job['title']}* — {method} queued"),
+                            B.context(f"I'll post here when it finishes · `{job_id}`"),
+                        ],
+                    )
+                    return
                 say(
                     text=f"{method} → {job['status']}",
                     blocks=[
