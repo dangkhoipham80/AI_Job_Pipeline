@@ -23,6 +23,8 @@ import type {
   Settings,
   LlmStats,
   MarketReport,
+  Page,
+  PageQuery,
   Stats,
   Task,
 } from "@/types";
@@ -74,7 +76,7 @@ export const api = {
   stats: () => req<Stats>("/stats"),
   market: () => req<MarketReport>("/analytics/market"),
   llmStats: (live = false) => req<LlmStats>(`/stats/llm${live ? "?live=true" : ""}`),
-  jobs: (query: JobsQuery = {}) => req<Job[]>(`/jobs${qs(query as Record<string, unknown>)}`),
+  jobs: (query: JobsQuery = {}) => req<Page<Job>>(`/jobs${qs(query as Record<string, unknown>)}`),
   job: (id: string) => req<JobDetail>(jobPath(id)),
   /* Manual entry — the way in for postings no crawler may fetch, LinkedIn above
      all (its robots.txt disallows automated access to job pages). */
@@ -90,7 +92,8 @@ export const api = {
   saveCv: (scope: string, document: CvDocument) =>
     req<CvDocumentResponse>(cvPath(scope), { method: "PUT", body: JSON.stringify(document) }),
   compileCv: (scope: string) => req<CvCompileResult>(`${cvPath(scope)}/compile`, { method: "POST" }),
-  cvVersions: (scope: string) => req<CvVersion[]>(`${cvPath(scope)}/versions`),
+  cvVersions: (scope: string, page: PageQuery = {}) =>
+    req<Page<CvVersion>>(`${cvPath(scope)}/versions${qs(page as Record<string, unknown>)}`),
   cvVersion: (scope: string, version: number) =>
     req<CvVersionDetail>(`${cvPath(scope)}/versions/${version}`),
   cvDiff: (scope: string, base: number, target: number) =>
@@ -139,11 +142,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),
-  applications: (result?: string) =>
-    req<Application[]>(`/applications${qs({ result })}`),
+  applications: (result?: string, page: PageQuery = {}) =>
+    req<Page<Application>>(`/applications${qs({ result, ...page })}`),
   applySettings: () => req<ApplySettings>("/applications/settings"),
   /** Applications whose next follow-up has come due. Read-only: nothing is sent. */
-  followups: () => req<Application[]>("/applications/followups"),
+  followups: (page: PageQuery = {}) =>
+    req<Page<Application>>(`/applications/followups${qs(page as Record<string, unknown>)}`),
   markFollowedUp: (id: number) =>
     req<Application>(`/applications/${id}/followed-up`, { method: "POST" }),
   stopFollowups: (id: number) =>
@@ -164,7 +168,8 @@ export const api = {
      can't answer inside a request, so it returns a task like crawling does. */
   syncInbox: () => req<Task>("/inbox/sync", { method: "POST" }),
   inboxSettings: () => req<InboxSettings>("/inbox/settings"),
-  inboxSuggestions: () => req<InboxSuggestion[]>("/inbox/suggestions"),
+  inboxSuggestions: (page: PageQuery = {}) =>
+    req<Page<InboxSuggestion>>(`/inbox/suggestions${qs(page as Record<string, unknown>)}`),
   acceptSuggestion: (id: number) =>
     req<Application>(`/inbox/suggestions/${id}/accept`, { method: "POST" }),
   dismissSuggestion: (id: number) =>
@@ -175,9 +180,10 @@ export const api = {
   startCrawl: (body: CrawlRequest = {}) =>
     req<Task>("/crawl", { method: "POST", body: JSON.stringify(body) }),
   crawlSetup: () => req<CrawlSetupInfo>("/crawl/setup"),
-  tasks: (kind?: string) => req<Task[]>(`/tasks${qs({ kind })}`),
+  tasks: (kind?: string, page: PageQuery = {}) => req<Page<Task>>(`/tasks${qs({ kind, ...page })}`),
   task: (id: string) => req<Task>(`/tasks/${id}`),
-  runs: (kind?: string) => req<RunRecord[]>(`/runs${qs({ kind })}`),
+  runs: (kind?: string, page: PageQuery = {}) =>
+    req<Page<RunRecord>>(`/runs${qs({ kind, ...page })}`),
   settings: () => req<Settings>("/settings"),
   saveSettings: (patch: Partial<Settings>) =>
     req<Settings>("/settings", { method: "PUT", body: JSON.stringify(patch) }),

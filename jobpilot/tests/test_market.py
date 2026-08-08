@@ -10,6 +10,8 @@ tag their ads while looking like it describes the market, and this database is
 
 from __future__ import annotations
 
+from datetime import date
+
 from jobpilot.analytics import market
 from jobpilot.crawler.salary import parse as parse_salary
 from jobpilot.crawler.skills import canonicalise
@@ -172,9 +174,45 @@ def test_the_calendar_counts_posting_days_not_crawl_days():
         {"posted_at": "2026-08-02T09:00:00+07:00"},
         {"posted_at": None},
     ]
-    facet = market.posting_calendar(payloads)
-    assert {r["key"]: r["count"] for r in facet.rows} == {"2026-08-01": 2, "2026-08-02": 1}
+    facet = market.posting_calendar(payloads, today=date(2026, 8, 2))
+    counts = {r["key"]: r["count"] for r in facet.rows}
+    assert counts["2026-08-01"] == 2 and counts["2026-08-02"] == 1
     assert facet.covered == 3 and facet.total == 4
+
+
+def test_the_calendar_emits_every_day_in_the_window_even_the_empty_ones():
+    """A day nobody posted on is a fact about the market, and it has to hold a
+    slot on the axis. Emitting only the days that *had* a posting turns a time
+    axis into a list of unrelated labels: the distance between two neighbouring
+    points is a day here and eighteen months there, so the plot silently
+    rescales itself and three real weeks of hiring get squeezed into a third of
+    the width."""
+    payloads = [{"posted_at": "2026-08-08"}, {"posted_at": "2026-08-06"}]
+    facet = market.posting_calendar(payloads, days=5, today=date(2026, 8, 8))
+
+    assert [r["key"] for r in facet.rows] == [
+        "2026-08-04",
+        "2026-08-05",
+        "2026-08-06",
+        "2026-08-07",
+        "2026-08-08",
+    ]
+    assert [r["count"] for r in facet.rows] == [0, 0, 1, 0, 1]
+
+
+def test_postings_outside_the_window_are_excluded_and_counted():
+    """Dropping them quietly would leave `covered` claiming the chart drew jobs
+    it never plotted — and `covered` is the number this whole page rests on."""
+    payloads = [
+        {"posted_at": "2026-08-08"},
+        {"posted_at": "2024-02-21"},  # a stray from two years ago
+        {"posted_at": "not a date"},
+    ]
+    facet = market.posting_calendar(payloads, days=7, today=date(2026, 8, 8))
+
+    assert facet.covered == 1, "only the in-window posting was drawn"
+    assert facet.total == 3
+    assert "2 dated posting(s) fall outside" in facet.note
 
 
 def test_microservices_survives_the_industry_filter():

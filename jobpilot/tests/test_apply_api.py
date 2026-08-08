@@ -85,7 +85,8 @@ def test_apply_requires_token(client):
 
 
 def _board_row(client, job_id: str) -> dict:
-    return next(a for a in client.get("/applications", headers=AUTH).json() if a["job_id"] == job_id)
+    rows = client.get("/applications", headers=AUTH).json()["items"]
+    return next(a for a in rows if a["job_id"] == job_id)
 
 
 def test_apply_route_is_not_shadowed_by_the_job_detail_route(client, run_task):
@@ -175,7 +176,7 @@ def test_a_second_task_for_the_same_job_is_refused(client, hold_task):
 def test_board_lists_applications_with_job_context(client, run_task):
     run_task(client, client.post("/jobs/itviec:1/apply", headers=AUTH))
     run_task(client, client.post("/jobs/itviec:2/apply", headers=AUTH))
-    rows = client.get("/applications", headers=AUTH).json()
+    rows = client.get("/applications", headers=AUTH).json()["items"]
     assert {r["job_id"] for r in rows} == {"itviec:1", "itviec:2"}
     first = next(r for r in rows if r["job_id"] == "itviec:1")
     assert first["company"] == "ACME Corp" and first["channel"] == "email"
@@ -185,8 +186,53 @@ def test_board_lists_applications_with_job_context(client, run_task):
 def test_board_filters_by_result(client, run_task):
     run_task(client, client.post("/jobs/itviec:1/apply", headers=AUTH))
     run_task(client, client.post("/jobs/itviec:2/apply", headers=AUTH))
-    rows = client.get("/applications?result=awaiting_user", headers=AUTH).json()
-    assert [r["job_id"] for r in rows] == ["itviec:2"]
+    body = client.get("/applications?result=awaiting_user", headers=AUTH).json()
+    assert [r["job_id"] for r in body["items"]] == ["itviec:2"]
+    # Each column carries its own total, which is what lets the board page
+    # per column instead of sharing one window across all four.
+    assert body["total"] == 1
+
+
+def test_each_board_column_gets_its_own_window(client, run_task):
+    """The board used to fetch every application and split them up in the
+    browser, so all four columns shared one page size. A run of rejections
+    would fill that window and push the offers out of the response entirely —
+    and an "Offers" column that is empty because of a `limit` looks exactly
+    like an "Offers" column that is empty because nobody made you one.
+
+    Here `itviec:1` is a dry run and `itviec:2` awaits the user. Asking for one
+    row of one column must not be able to return the other column's row, and
+    each total must count only its own stage.
+    """
+    run_task(client, client.post("/jobs/itviec:1/apply", headers=AUTH))
+    run_task(client, client.post("/jobs/itviec:2/apply", headers=AUTH))
+
+    dry = client.get("/applications?result=dry_run&limit=1", headers=AUTH).json()
+    waiting = client.get("/applications?result=awaiting_user&limit=1", headers=AUTH).json()
+
+    assert [r["job_id"] for r in dry["items"]] == ["itviec:1"] and dry["total"] == 1
+    assert [r["job_id"] for r in waiting["items"]] == ["itviec:2"] and waiting["total"] == 1
+
+    # The unfiltered board still sees both: a column narrows the query, it does
+    # not hide the row from anything else.
+    assert client.get("/applications", headers=AUTH).json()["total"] == 2
+
+    # Page 2 of a one-row column is empty, not a wrapped-around repeat.
+    page2 = client.get("/applications?result=dry_run&limit=1&offset=1", headers=AUTH).json()
+    assert page2["items"] == [] and page2["total"] == 1
+
+
+def test_the_board_can_be_asked_for_one_jobs_application(client, run_task):
+    """`job_id` exists so the Slack bot stops pulling the whole board to find
+    one row — a scan that silently starts missing rows once the endpoint has a
+    page size."""
+    run_task(client, client.post("/jobs/itviec:1/apply", headers=AUTH))
+    run_task(client, client.post("/jobs/itviec:2/apply", headers=AUTH))
+
+    body = client.get("/applications?job_id=itviec:2", headers=AUTH).json()
+    assert [r["job_id"] for r in body["items"]] == ["itviec:2"]
+    assert body["total"] == 1
+    assert client.get("/applications?job_id=nope:0", headers=AUTH).json()["total"] == 0
 
 
 def test_settings_expose_the_gates(client, apply_cfg):

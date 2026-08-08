@@ -69,10 +69,10 @@ def notification_for(
 
     if kind == "apply_done" and job_id:
         job = client.job(job_id)
-        rows = [a for a in client.applications() if a["job_id"] == job_id]
+        row = client.application_for(job_id)
         outcome = (
-            outcome_from_application(rows[0])
-            if rows
+            outcome_from_application(row)
+            if row
             else {"result": event.get("result"), "channel": event.get("channel"), "detail": ""}
         )
         return Notification(
@@ -103,8 +103,8 @@ def notification_for(
             job = client.job(job_id)
         except ApiError:
             return None
-        rows = [a for a in client.applications() if a["job_id"] == job_id]
-        reason = (rows[0].get("error_msg") if rows else None) or "see the dashboard for details"
+        row = client.application_for(job_id)
+        reason = (row.get("error_msg") if row else None) or "see the dashboard for details"
         return Notification(
             kind="error",
             job_id=job_id,

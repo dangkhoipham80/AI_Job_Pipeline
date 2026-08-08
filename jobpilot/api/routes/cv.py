@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
+from jobpilot.api.paging import LimitParam, OffsetParam, page_list
 from jobpilot.api.schemas import (
     CvCompileOut,
     CvDocumentOut,
@@ -20,6 +21,7 @@ from jobpilot.api.schemas import (
     CvVersionDetailOut,
     CvVersionDiffOut,
     CvVersionOut,
+    Page,
 )
 from jobpilot.api.ws import manager
 from jobpilot.cv import store
@@ -189,12 +191,19 @@ def get_pdf(scope: str) -> FileResponse:
     return FileResponse(pdf, media_type="application/pdf", filename=f"{scope}-cv.pdf")
 
 
-@router.get("/{scope}/versions", response_model=list[CvVersionOut])
-def versions(scope: str, db: Session = Depends(get_db)) -> list[CvVersionOut]:
+@router.get("/{scope}/versions", response_model=Page[CvVersionOut])
+def versions(
+    scope: str,
+    db: Session = Depends(get_db),
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
+) -> dict:
     """Version metadata, newest first (content omitted -- it's heavy)."""
     if scope == store.MASTER_SCOPE:
         store.ensure_master(db)
-    return [CvVersionOut.model_validate(v) for v in store.list_versions(db, scope)]
+    rows = store.list_versions(db, scope, limit=limit, offset=offset)
+    items = [CvVersionOut.model_validate(v) for v in rows]
+    return page_list(items, store.count_versions(db, scope), limit, offset)
 
 
 @router.get("/{scope}/versions/{version}", response_model=CvVersionDetailOut)

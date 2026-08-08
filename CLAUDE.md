@@ -359,11 +359,28 @@ kể cả OpenAI strict mode. Biến môi trường `OPENAI_API_KEY` cũ đã g�
 - **Lương: không đoán.** Không có ký hiệu tiền tệ ⇒ `None` ("20 - 60" là triệu VND hay USD/giờ
   tuỳ board). "Up to 3000" ⇒ `min=None`, **không** bịa 0. Quy đổi sang USD/tháng dùng
   `salary.USD_VND_RATE` có `FX_CHECKED_ON` — là **ước tính**, UI phải nói thế.
-- **Màu: một measure thì một màu.** Tô 8 màu xuống 15 dòng là tô theo *thứ hạng* — đổi filter là
-  đổi màu. Chỉ facet mà mỗi dòng là một *thực thể* (source) mới truyền hàm màu. Và
-  `SOURCE_ORDER` phải **đúng bằng số hue**: dài hơn thì wrap, `lever` đội màu của `itviec`.
+- **Màu theo *việc* nó làm** (skill `dataviz`, đọc trước khi thêm chart). Mọi chart đếm job dùng
+  chung hằng `MEASURE` trong `Market.tsx` — một measure một màu; tô 8 hue xuống 15 dòng là tô
+  theo *thứ hạng*. Nominal (skill, city) một hue; ordinal (seniority) `ordinalRamp(n)` — ramp
+  **đổi bước theo n**, ép 6 bước vào dải light thì hai bước giữa thành cùng một xanh; histogram
+  **không** ramp (trục x đã mang thứ tự); quality dùng `STATUS` + icon + chữ, `undated` để **xám**
+  vì không biết ≠ hỏng. Palette mới thì **chạy `validate_palette.js`** với surface của app
+  (`#ffffff` / `#1a1a19`), đừng ước lượng bằng mắt. `SOURCE_ORDER` phải **đúng bằng số hue**.
+- **Donut nguồn xếp lát theo slot palette, không theo số lượng.** Bộ 8 hue chỉ validate cho cặp
+  **kề nhau trong thứ tự slot**. Xếp theo count đo được **xám cạnh magenta ΔE 2.1 (deutan)** ở
+  dark; xếp theo slot thì cặp tệ nhất **ΔE 41**. Xếp hạng nằm ở legend, đọc bằng số. Nhích một
+  hue **không cứu được** (trần all-pairs của bộ dark = ΔE 4.7).
 - **`posting_calendar` dùng `posted_at`**, khác biểu đồ `by_day` của Deck (dùng `crawled_at` —
-  đo thói quen chạy crawler của mình, không đo thị trường).
+  đo thói quen chạy crawler của mình, không đo thị trường). Nó phát ra **cửa sổ lịch 30 ngày
+  thật, zero-fill**, và đếm + khai số bài rơi ngoài cửa sổ. Bản đầu chỉ phát ra *ngày có bài*
+  nên hai điểm liền kề cách nhau khi 1 ngày khi 18 tháng — một trục thời gian không có thời gian.
+- **Token màu đưa vào SVG phải là màu.** `--ink-muted` lưu RGB channels cho Tailwind; nhét thẳng
+  vào `fill` là thuộc tính không hợp lệ, **bị bỏ qua im lặng** → nhãn trục về gần đen: light mode
+  vẫn đọc được nên không ai thấy, dark mode mất sạch. Dùng `axisColor()` / `gridColor()` /
+  `surfaceColor()` ở `ChartFrame.tsx`, đừng đọc CSS var trực tiếp.
+- **Chart đọc `isDark()` lúc render.** Chụp dark mode phải set `localStorage` **trước khi app
+  boot** (`add_init_script`); bật class `.dark` sau khi mount chỉ repaint CSS — chart giữ palette
+  light, ảnh *trông* tối mà verify sai.
 
 ### Inbox sync (Phase 19) — đọc trước khi đụng vào `apply/inbox.py`
 
@@ -406,6 +423,37 @@ kể cả OpenAI strict mode. Biến môi trường `OPENAI_API_KEY` cũ đã g�
 - **Guard double-click trong React phải là `useRef`, không phải state.** Hai click cùng một
   tick đều đọc `busy === false` (chưa re-render giữa hai lần) nên state check để lọt click
   thứ hai và ghi event trùng. Xem `web/src/components/OutcomeTracker.tsx`.
+
+### Phân trang — đọc trước khi thêm một list endpoint
+
+- **Mọi list endpoint trả `Page{items, total, limit, offset}`** (`api/schemas.Page`), không
+  bao giờ mảng trần: 25/25 và 25/900 là **cùng một mảng** trên đường truyền, nên không có
+  `total` thì UI phải đoán bằng `items.length === limit` — sai đúng lúc tổng là bội số của
+  page size. Client phải đọc `.items` (Slack có `_items()` bọc sẵn).
+- **`ORDER BY` phải kết thúc bằng một cột UNIQUE.** `LIMIT/OFFSET` trên thứ tự có tie là bug
+  **im lặng**: dòng bằng nhau ra thứ tự khác nhau giữa query trang 1 và trang 2 ⇒ một dòng
+  hiện hai lần, một dòng không bao giờ hiện. Ở corpus này `posted_at` **null** với mọi
+  LinkedIn alert và giống hệt nhau trong một mẻ crawl, nên tie là mặc định chứ không phải
+  ngoại lệ. `paging.page_query()` **raise** nếu statement không có `ORDER BY`.
+- **`total` đếm bằng subquery của chính statement đã lọc** (`paging.total_for`), không dựng
+  lại `where` bằng tay — dựng lại là cách `total` trôi khỏi thứ nó đếm rồi mời user sang một
+  trang trống.
+- **`MAX_PAGE_SIZE=200` cho tất cả**, vượt là **422**. Endpoint không cap là DoS vào chính
+  dashboard của mình (`/applications` từng không có cap).
+- **Board Applications: mỗi cột một query `?result=<stage>`.** Lọc client-side từ một list
+  nghĩa là bốn cột chung một cửa sổ — một chuỗi rejection đẩy offer ra khỏi response, và cột
+  "Offers" trống vì `limit` trông y hệt cột "Offers" trống vì chưa ai mời.
+- **Guard thì không được phân trang.** `queue.active()` dùng `limit=None`; trang Runs hỏi
+  riêng một request để gate nút Crawl. Một guard nhìn nhầm cửa sổ sẽ báo "không có gì đang
+  chạy" và cho chạy task thứ hai.
+- **Frontend**: `usePaging(name)` nhớ **size** trong localStorage theo từng list (không nhớ
+  page — vị trí là chuyện một lần xem, size là preference), `useClampPage` kéo về trang cuối
+  hợp lệ khi list co lại, và **`reset()` khi filter đổi** (đứng ở trang 7 của một tìm kiếm
+  giờ chỉ còn 4 kết quả = bảng trống không manh mối). Dropdown compare version trong CV
+  Studio dựng option từ **dải số 1..total**, không từ trang đã tải, nếu không thì hết diff
+  được v1 với v40.
+- **`/applications/{id}/events` cố ý KHÔNG phân trang** — lịch sử của *một* đơn, pager trên
+  timeline 3 dòng là chrome thuần tuý. Là endpoint list duy nhất còn trả mảng trần.
 
 ### Nợ kỹ thuật còn lại (roadmap PLAN.md §9 đã xong)
 

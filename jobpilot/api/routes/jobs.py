@@ -10,7 +10,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import JobDetailOut, JobIn, JobOut, JobPatch
+from jobpilot.api.paging import LimitParam, OffsetParam, page_list, page_query
+from jobpilot.api.schemas import JobDetailOut, JobIn, JobOut, JobPatch, Page
 from jobpilot.api.ws import manager
 from jobpilot.config import get_config
 from jobpilot.store.models import Job, JobStatus
@@ -40,7 +41,7 @@ def _native_id(url: str) -> str:
 _EARLY = {JobStatus.DISCOVERED, JobStatus.SHORTLISTED, JobStatus.SKIPPED}
 
 
-@router.get("", response_model=list[JobOut])
+@router.get("", response_model=Page[JobOut])
 def list_jobs(
     db: Session = Depends(get_db),
     source: str | None = None,
@@ -51,9 +52,9 @@ def list_jobs(
     run_id: int | None = Query(None, description="only jobs discovered by this crawl"),
     crawled_after: datetime | None = Query(None, description="crawled at or after this time"),
     order: str = Query("posted", pattern="^(posted|crawled)$"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-) -> list[Job]:
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
+) -> dict:
     stmt = select(Job)
     if source:
         stmt = stmt.where(Job.source == source)
@@ -75,9 +76,16 @@ def list_jobs(
     # Default: freshest posting first. "crawled" answers a different question —
     # what did the agent turn up most recently — so it is a separate ordering
     # rather than a tweak of the same one.
+    #
+    # `Job.id` last is what makes the order total. `posted_at` is null for a
+    # LinkedIn alert and identical across a whole crawl batch, so without a
+    # unique tie-break the database is free to order the ties differently
+    # between the page-1 and page-2 queries — and then a job shows up twice
+    # while another is never shown.
     key = Job.crawled_at if order == "crawled" else Job.posted_at
-    stmt = stmt.order_by(key.desc(), Job.crawled_at.desc()).limit(limit).offset(offset)
-    return list(db.scalars(stmt))
+    stmt = stmt.order_by(key.desc(), Job.crawled_at.desc(), Job.id.desc())
+    rows, total = page_query(db, stmt, limit, offset)
+    return page_list([JobOut.model_validate(r) for r in rows], total, limit, offset)
 
 
 @router.post("", response_model=JobDetailOut, status_code=201)

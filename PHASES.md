@@ -510,3 +510,175 @@ Esc mỗi lần parent render, và rollback làm rơi override.
 **Ghi chú môi trường:** headless Chrome không có PDF viewer ⇒ mọi kiểm tra preview phải chạy
 `headless=False`. Lỗi console duy nhất còn lại là `chrome-extension://…/pdf_embedder.css` — asset
 của chính PDF viewer trong Chrome, không phải của app.
+
+---
+
+## /market — biểu đồ đọc được, và một trục thời gian không có thời gian (theo yêu cầu)
+
+Phàn nàn của user, đúng chữ: *"market#source và market#calendar đang giống nhau?? và màu các
+biểu đồ xấu, ko có biểu đồ tròn, nhìn ko chuyên nghiệp."* Cả ba đều đúng, và đào xuống thì
+dưới hai cái đầu là bug thật chứ không phải chuyện thẩm mỹ.
+
+**"Giống nhau" là thật, và lý do nó xảy ra đáng ghi lại.** Hai card cuối trang cùng là bar
+chart, và cùng **một màu xanh lá `#008300`**: `sourceColor("linkedin")` rơi vào slot 3 vì
+LinkedIn đứng thứ tư trong `SOURCE_ORDER`, còn calendar thì hardcode `categorical()[3]`. Không
+ai chọn cho chúng trùng nhau — một bên đánh số theo *thực thể*, một bên theo *chỉ số palette*,
+và hai hệ đánh số đó va vào nhau ở đúng một chỗ. Chọn màu bằng index trần là còn để ngỏ khả
+năng này ở mọi biểu đồ khác. Giờ mọi chart đo *số lượng job* dùng chung một hằng `MEASURE`, và
+hue chỉ được dùng ở nơi hue mang thông tin.
+
+**`axisColor()` trả về một chuỗi không phải màu — và light mode che mất chuyện đó.**
+`--ink-muted` lưu **RGB channels** (`"157 155 144"`) để Tailwind ghép `rgb(var(--x) / <alpha>)`.
+`ChartFrame.axisColor()` đọc thẳng chuỗi đó rồi đưa vào `fill` của SVG ⇒ thuộc tính **không
+hợp lệ, bị bỏ qua im lặng**, chữ rơi về mặc định gần đen. Trên nền sáng nó trông như một màu
+xám hơi đậm và không ai để ý; trên nền tối **mọi nhãn trục biến mất**. Chính `index.css` đã ghi
+chú "--grid / --viz-surface stay hex: charts read them back" — biết luật, nhưng `--ink-muted`
+thì lọt. Cùng họ với `+2` và `Hiring`: thứ nguy hiểm là cái *báo cáo thành công*.
+
+**Ảnh chụp dark mode đã sai suốt nhiều vòng, và script chụp mới là thứ hỏng.** Script bật
+`.dark` bằng JS **sau khi** React mount. CSS repaint ngay nên ảnh *trông* tối, nhưng chart đọc
+`isDark()` trong lúc render ⇒ vẫn giữ nguyên palette light. Nghĩa là mấy lượt "verify dark mode"
+đầu tiên không verify gì cả. Phải set `localStorage` trong `add_init_script` **trước khi** app
+boot (index.html đã đọc key đó sẵn). Đúng bài học "đừng để công cụ đo bịa ra finding", lần này
+là công cụ đo *giấu* finding.
+
+**Trục thời gian không có thời gian.** `posting_calendar` phát ra *các ngày có bài đăng* rồi lấy
+30 phần tử cuối. Trên corpus thật: `2024-02-21`, `2024-03-12`, `2025-02-25`, `2025-08-07`, rồi
+`2026-07-07`… — bốn cái lẻ chiếm bốn ô cạnh nhau, nên **khoảng cách giữa hai điểm liền kề khi
+là một ngày, khi là mười tám tháng**. Biểu đồ tự co giãn trục của chính nó mà không nói, và ba
+tuần tuyển dụng thật bị nén vào một phần ba bên phải. Nay là **cửa sổ lịch 30 ngày thật,
+zero-fill**, và số bài rơi ngoài cửa sổ được **đếm và khai ra** (`covered` phải tiếp tục nghĩa
+là "job biểu đồ này thực sự vẽ" — đó là con số cả trang đứng trên). Ba test ghim.
+
+**Biểu đồ tròn: có, nhưng thứ tự lát cắt là do đo mà ra, không phải do thẩm mỹ.** Palette 8 hue
+chỉ được validate cho các cặp **kề nhau trong thứ tự slot cố định** — đó là cơ chế an toàn CVD,
+không phải trang trí. Donut xếp theo *số lượng* thì hai nguồn nào tình cờ đứng cạnh nhau sẽ
+chạm nhau: đo trên corpus này ra **xám cạnh magenta, ΔE 2.1 (deutan)** ở dark mode, tức một
+đường biên vô hình. Xếp vòng theo **slot palette** thì cặp tệ nhất là **ΔE 41**. Nên vòng xếp
+theo slot, còn *xếp hạng* — thứ người ta thực sự muốn — nằm ở legend, đọc bằng số. Cũng đã thử
+sửa bằng cách nhích một hue: **không cứu được**, trần all-pairs của bộ dark chỉ tới ΔE 4.7 (cặp
+bị chặn chuyển sang aqua↔magenta, chẳng liên quan gì tới hue vừa sửa). Tối đa 6 lát, đuôi gộp
+vào "Other" màu xám — và hàng legend của các nguồn bị gộp **cũng** màu xám, vì xám là lát cắt
+chúng đang nằm trong; cho chúng hue riêng là chỉ vào một lát không có trên vòng.
+
+**Màu theo *việc* nó làm, không theo card:** nominal (skill, city) một hue; ordinal (seniority)
+ramp một hue đã chạy `validateOrdinal` — và ramp phải **đổi bước theo n**, ép 6 bước vào dải
+light thì hai bước giữa thành cùng một xanh (n=6 light: không có bộ nào hợp lệ); histogram đã
+có trục mang thứ tự nên **không** ramp (ramp = mã hoá vị trí x lần thứ hai bằng hue); quality là
+**trạng thái** nên dùng status scale, kèm icon + chữ như scale đó bắt buộc — `undated` để **xám
+trung tính**, vì không có ngày là *không biết*, không phải *hỏng*.
+
+**Lặt vặt nhưng là phần "trông không chuyên nghiệp":** nhãn thô (`no_jd`, `ci/cd`,
+`weworkremotely`) rò tên cột ra trục ⇒ `web/src/lib/labels.ts` dịch ở rìa, fallback title-case
+để flag mới vẫn đọc được ngày nó xuất hiện; `$1574.8` khoe độ chính xác mà một con số quy đổi
+từ tỉ giá có ngày kiểm tra không hề có ⇒ `$1,575`; card "Pay distribution" với **1/83** job là
+đúng cái "one-bar bar chart" nên là một con số ⇒ dưới `MIN_SAMPLE` thì hiện số, không hiện lưới
+trống; `type="monotone"` vẽ đỉnh vào những ngày không ai đăng ⇒ `linear`.
+
+**Verify:** 681 test; `tsc` sạch; `/market` chụp thật light + dark **có set theme trước khi
+boot**, console sạch; `GET /analytics/market` đọc từ Postgres thật (30 row lịch, `covered` 66/83,
+note khai 6 bài ngoài cửa sổ). Palette chạy qua `validate_palette.js` của skill `dataviz` cho
+đúng surface của app (`#ffffff` / `#1a1a19`), không ước lượng bằng mắt.
+
+**Bẫy môi trường mất 20 phút:** sửa backend xong `--reload` không ăn. Không phải reloader —
+lần restart trước để lại một **worker mồ côi** vẫn giữ cổng 8000 (Windows cho hai process bind
+cùng cổng), nên request rơi vào bản cũ. `Get-CimInstance Win32_Process` thấy cả `--multiprocessing-fork`
+mồ côi lẫn reloader mới. Curl API trả kết quả cũ trong khi `python -c` cùng module trả kết quả
+mới ⇒ nghi ngay có hai process, đừng nghi cache.
+
+---
+
+## Phân trang ở backend (theo yêu cầu)
+
+Yêu cầu: *"Các trang, các list đều chưa phân trang -> làm ở BE phân trang (cho
+option chọn số item/page)."* Bảy list endpoint, tất cả đang trả **mảng JSON trần**.
+
+**Mảng trần không trả lời được câu hỏi quan trọng nhất.** 25 dòng trên tổng 25 và
+25 dòng trên tổng 900 là **cùng một mảng** trên đường truyền. Không có `total` thì
+pager hoặc nói dối là đã hết, hoặc đoán bằng `items.length === limit` — sai đúng
+vào lúc tổng là bội số của page size. Nên mọi list giờ trả `Page{items, total,
+limit, offset}` (`api/schemas.Page`, generic Pydantic). Đây là **breaking change**
+với mọi client: Slack, frontend, và 26 test.
+
+**Bẫy thật của phân trang không phải `LIMIT`, mà là thứ tự.** `LIMIT/OFFSET` trên
+một `ORDER BY` có **tie** là bug im lặng, không phải bug thẩm mỹ: các dòng bằng
+nhau ở khoá sắp xếp có thể ra theo thứ tự khác nhau giữa truy vấn trang 1 và trang
+2, nên một job hiện **hai lần** còn một job **không bao giờ** hiện. Không có
+exception nào, chỉ là bạn không thấy một tin tuyển dụng. Trong corpus này điều đó
+gần như chắc chắn xảy ra: `posted_at` **null** với mọi job từ LinkedIn alert và
+giống hệt nhau trong cả một mẻ crawl. Nên mọi thứ tự giờ kết thúc bằng một cột
+**unique** (`Job.id`, `Application.id`, `InboxSuggestion.id`, `CvVersion.version`),
+và `paging.page_query` **từ chối** một statement không có `ORDER BY` — thà nổ còn
+hơn trả về một trang chỉ đúng do may. Test `test_paging.py` seed 12 job **cố ý
+bằng nhau ở mọi khoá** rồi đi hết 3 trang và đếm: 12 dòng, không lặp, không thiếu.
+Verify thật trên 83 job qua browser: trang 1 và trang 2 giao nhau **0**.
+
+**`total` phải đếm cùng bộ lọc với dòng.** Đếm trên cả bảng trong khi dòng thì đã
+lọc ⇒ UI mời người dùng sang trang 4..9 rồi trả về trống. `total_for()` đếm bằng
+subquery **của chính statement đã lọc**, không dựng lại `where` bằng tay — dựng
+lại là cách `total` trôi khỏi thứ nó đếm khi ai đó thêm filter vào một chỗ mà quên
+chỗ kia.
+
+**Board Applications: bốn cột, bốn cửa sổ.** Trước đây trang này lấy *toàn bộ*
+application rồi `filter()` trong browser, tức bốn cột **dùng chung một page size**.
+Một chuỗi rejection sẽ chiếm hết cửa sổ và **đẩy offer ra khỏi response** — và một
+cột "Offers" trống vì `limit` trông y hệt một cột "Offers" trống vì chưa ai mời
+bạn. Giờ mỗi cột tự hỏi `?result=<stage>` với offset riêng, và số ở đầu cột là
+**total thật của stage đó**. Một page-size cho cả board (dropdown ở góc), vì bốn
+dropdown trong bốn cột hẹp là nhiều chrome hơn board.
+
+**Bug thật mà phân trang *tạo ra*, và đã sửa cùng lúc:**
+- `slack/events.py` tìm application của một job bằng `[a for a in
+  client.applications() if a["job_id"] == job_id]` — quét cả board. Đang lãng phí,
+  và **thành sai** ngay khi endpoint có page size: dòng nó cần có thể nằm ở trang
+  2, bot báo "không có application" cho chính job vừa nộp. Thêm filter `job_id=`
+  phía server + `client.application_for()`.
+- `queue.active()` gọi `self.list(kind=...)` với `limit=50` mặc định. Nó là
+  **guard** chống chạy hai crawl cùng lúc, không phải một danh sách để hiển thị —
+  một task queued rơi khỏi cửa sổ sẽ đọc thành "không có gì đang chạy". Giờ
+  `limit=None`. Trang Runs cũng hỏi riêng một request cho việc gate nút Crawl,
+  không dùng trang đang xem.
+- `/applications` **không hề có cap** trên `limit` (`limit: int = 200` trần, không
+  `Query(le=...)`). Một list endpoint không chặn trên là DoS vào chính dashboard
+  của mình. Giờ mọi endpoint dùng chung `MAX_PAGE_SIZE=200`, vượt là **422** chứ
+  không phải một thành công chậm.
+
+**Ba chỗ UI mà phân trang làm hỏng nếu không để ý:**
+1. **Đổi filter mà giữ nguyên page.** Thu hẹp tìm kiếm từ 300 hit xuống 4 rồi vẫn
+   đứng ở trang 7 = bảng trống, không manh mối. `usePaging.reset()` gọi khi
+   *filter* đổi (không phải khi data refresh).
+2. **List co lại dưới chân mình.** Một WS push hay một tab khác xoá dòng có thể
+   cắt list ngắn hơn trang đang xem. `useClampPage` kéo về trang cuối hợp lệ —
+   không có nó thì màn hình trống với nút "previous" vẫn chạy, về mặt kỹ thuật cứu
+   được nhưng đọc như mất dữ liệu.
+3. **Dropdown so sánh version trong CV Studio.** Nó liệt kê version để diff; nếu
+   nuôi bằng *trang* đang tải thì không còn diff được v1 với v40. Version là
+   append-only, đánh số 1..N **không có lỗ**, nên option dựng từ **dải số** chứ
+   không từ dòng đã tải — chỉ nhãn "· agent" là cần dòng, và nó vắng mặt ở version
+   ngoài trang, thứ chẳng mất gì vì bản diff tự nói ai viết.
+
+**Nhớ *kích thước*, không nhớ *vị trí*.** `usePaging` lưu page size vào
+localStorage theo từng list (`jobpilot-page-size:<name>`); `page` thì luôn về 0.
+Bạn đang ở đâu trong một list là chuyện của một lần xem; bạn thích nhìn bao nhiêu
+dòng một lúc là một preference. Per-list chứ không global: bảng Jobs muốn 100 còn
+lịch sử Runs muốn 10. Giá trị đọc ra được **validate lại theo `PAGE_SIZES`** —
+một giá trị cũ hoặc bị sửa tay sẽ đi thẳng vào query mà server trả 422.
+
+**`/applications/{id}/events` cố ý KHÔNG phân trang.** Nó là lịch sử của *một* đơn,
+dài bằng số lần bạn bấm nút, và một timeline 3 dòng có pager là chrome thuần tuý.
+Đây là endpoint list duy nhất còn trả mảng trần — một sự thiếu nhất quán có chủ ý,
+ghi ở đây để lần sau không ai "sửa" nó.
+
+**Verify:** 690 test (10 test mới: `test_paging.py` + per-column board + Slack
+`job_id`); `tsc` sạch. Chạy thật qua browser trên Postgres thật — Jobs 83 dòng đi
+sang trang 2 giao **0**, đổi size về trang 1, size **sống qua reload**; Runs 18;
+CV Studio 11 version. Board Applications trong DB thật đang **rỗng**, nên nó được
+chụp bằng một **API + vite tạm trên SQLite scratch** (47 đơn: 7/14/23/3) rồi xoá
+sạch: cột ≤ page size **không hiện pager**, "Submitted" đi hết 3 trang cho **23
+card phân biệt, không lặp không thiếu**. Ảnh light + dark, console sạch.
+
+**Bẫy môi trường (lần thứ hai trong ngày):** `--reload` "không ăn" vì lần restart
+trước để lại một **worker mồ côi vẫn giữ cổng 8000** — Windows cho hai process
+bind cùng một cổng, nên request rơi vào bản cũ. Dấu hiệu nhận ra: `curl` API trả
+kết quả cũ trong khi `python -c` cùng module trả kết quả mới ⇒ nghi hai process,
+đừng nghi cache.

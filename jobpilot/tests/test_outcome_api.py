@@ -68,7 +68,7 @@ def client(session_factory):
 def _sent(client) -> int:
     return next(
         a["id"]
-        for a in client.get("/applications", headers=AUTH).json()
+        for a in client.get("/applications", headers=AUTH).json()["items"]
         if a["result"] == "success"
     )
 
@@ -76,7 +76,7 @@ def _sent(client) -> int:
 def _dry(client) -> int:
     return next(
         a["id"]
-        for a in client.get("/applications", headers=AUTH).json()
+        for a in client.get("/applications", headers=AUTH).json()["items"]
         if a["result"] == "dry_run"
     )
 
@@ -106,7 +106,7 @@ def test_the_outcome_route_is_not_shadowed_by_the_board_routes(client):
 def test_recording_stops_the_follow_up_cadence(client):
     app_id = _sent(client)
     client.post(f"/applications/{app_id}/outcome", headers=AUTH, json={"event_type": "replied"})
-    row = next(a for a in client.get("/applications", headers=AUTH).json() if a["id"] == app_id)
+    row = next(a for a in client.get("/applications", headers=AUTH).json()["items"] if a["id"] == app_id)
     assert row["next_followup_at"] is None
     assert row["followup_due"] is False
 

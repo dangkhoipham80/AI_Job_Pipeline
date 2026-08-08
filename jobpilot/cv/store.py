@@ -51,9 +51,22 @@ def _scoped(scope: str):
     return stmt.where(CvVersion.job_id.is_(None) if job_id is None else CvVersion.job_id == job_id)
 
 
-def list_versions(db: Session, scope: str) -> list[CvVersion]:
-    """Newest first."""
-    return list(db.scalars(_scoped(scope).order_by(CvVersion.version.desc())))
+def list_versions(
+    db: Session, scope: str, limit: int | None = None, offset: int = 0
+) -> list[CvVersion]:
+    """Newest first. ``limit=None`` is every version — what the CLI wants."""
+    # (scope, job_id, version) is unique, so ordering by version is already total.
+    stmt = _scoped(scope).order_by(CvVersion.version.desc()).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return list(db.scalars(stmt))
+
+
+def count_versions(db: Session, scope: str) -> int:
+    """How many versions this scope has, ignoring any page window."""
+    from sqlalchemy import func
+
+    return db.scalar(select(func.count()).select_from(_scoped(scope).subquery())) or 0
 
 
 def latest_version(db: Session, scope: str) -> CvVersion | None:

@@ -3,6 +3,8 @@ import { useParams } from "react-router-dom";
 import { Code2, LayoutList, Plus, Save, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { useClampPage, usePaging } from "@/hooks/usePaging";
+import { Pagination } from "@/components/Pagination";
 import { Button, Card, CardBody, Select, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { AtsPanel } from "@/components/cv/AtsPanel";
@@ -53,7 +55,12 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
     setSavedVersion(data.version);
   }, [data]);
 
-  const versions = useApi(() => api.cvVersions(scope), [scope, savedVersion, wsVersion]);
+  const versionPaging = usePaging("cv-versions");
+  const versions = useApi(
+    () => api.cvVersions(scope, { limit: versionPaging.size, offset: versionPaging.offset }),
+    [scope, savedVersion, wsVersion, versionPaging.size, versionPaging.offset],
+  );
+  useClampPage(versions.data?.total, versionPaging);
 
   // Which pair the History card asked to compare. Versions are immutable, so
   // this is deliberately not refetched on save — the diff on screen stays true.
@@ -223,12 +230,24 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
             </Card>
           )}
           <VersionHistory
-            versions={versions.data}
+            versions={versions.data?.items ?? null}
+            total={versions.data?.total ?? 0}
             current={savedVersion}
             loading={versions.loading}
             busy={saving}
             onRollback={rollback}
             onCompare={(base, target) => setCompare({ base, target })}
+            pager={
+              <Pagination
+                className="mt-3"
+                page={versionPaging.page}
+                size={versionPaging.size}
+                total={versions.data?.total ?? 0}
+                onPage={versionPaging.setPage}
+                onSize={versionPaging.setSize}
+                noun="versions"
+              />
+            }
           />
         </div>
       </div>

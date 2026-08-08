@@ -361,9 +361,9 @@ def test_a_failed_crawl_surfaces_its_reason(client, monkeypatch):
 
 def test_runs_history_is_newest_first_and_filterable(client):
     c, _ = client
-    rows = c.get("/runs", headers=AUTH).json()
+    rows = c.get("/runs", headers=AUTH).json()["items"]
     assert [r["kind"] for r in rows] == ["tailor", "crawl"]
-    assert c.get("/runs?kind=crawl", headers=AUTH).json()[0]["stats"] == {"inserted": 4}
+    assert c.get("/runs?kind=crawl", headers=AUTH).json()["items"][0]["stats"] == {"inserted": 4}
 
 
 def test_settings_round_trip(client, tmp_path, monkeypatch):

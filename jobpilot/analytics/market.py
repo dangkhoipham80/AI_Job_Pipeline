@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass, field
+from datetime import date, timedelta
 
 #: Below this many contributing jobs, the page shows counts and a warning
 #: rather than a ranking. Same reasoning as ``llm/stats.MIN_SAMPLE``: a top-10
@@ -195,23 +196,60 @@ def quality_flags(payloads: list[dict]) -> Facet:
     return _facet(rows, len(payloads), len(payloads), "a quality signal")
 
 
-def posting_calendar(payloads: list[dict], days: int = 30) -> Facet:
-    """Ads per *posting* day.
+def posting_calendar(payloads: list[dict], days: int = 30, today: date | None = None) -> Facet:
+    """Ads per *posting* day, over a real calendar window.
 
     Deliberately ``posted_at``, not ``crawled_at``: the dashboard's existing
     by-day chart shows when *you* ran the crawler, which is a fact about your
     habits. This is a fact about the market.
+
+    Every day in the window gets a row, including the ones with no postings.
+    The first version emitted only days that *had* a posting and kept the last
+    30 of those, which is a different thing wearing the same name: four stray
+    ads from 2024 and 2025 each took a slot next to a day from last week, so a
+    chart with a time axis had no time on it — the gap between two neighbouring
+    points was sometimes a day and sometimes eighteen months, and three real
+    weeks of hiring were squeezed into the right-hand third. Days are cheap;
+    a plot that silently rescales its own x axis is not.
+
+    Postings older than the window are excluded and *counted*, so ``covered``
+    still means "jobs this chart drew".
     """
+    from jobpilot.timeutil import vn_now
+
+    end = today or vn_now().date()
+    start = end - timedelta(days=days - 1)
+
     counter: Counter[str] = Counter()
-    covered = 0
+    dated = 0
+    outside = 0
     for p in payloads:
         posted = p.get("posted_at")
         if not posted:
             continue
-        covered += 1
-        counter[str(posted)[:10]] += 1
-    rows = [{"key": day, "count": counter[day]} for day in sorted(counter)][-days:]
-    return _facet(rows, covered, len(payloads), "a posting date")
+        dated += 1
+        try:
+            day = date.fromisoformat(str(posted)[:10])
+        except ValueError:
+            outside += 1
+            continue
+        if start <= day <= end:
+            counter[day.isoformat()] += 1
+        else:
+            outside += 1
+
+    rows = [
+        {"key": (start + timedelta(days=i)).isoformat(), "count": 0}
+        for i in range(days)
+    ]
+    for row in rows:
+        row["count"] = counter[row["key"]]
+
+    facet = _facet(rows, dated - outside, len(payloads), f"a posting date in the last {days} days")
+    if outside:
+        extra = f"{outside} dated posting(s) fall outside this {days}-day window and are not drawn."
+        facet.note = f"{facet.note} {extra}".strip()
+    return facet
 
 
 def by_source(payloads: list[dict]) -> Facet:

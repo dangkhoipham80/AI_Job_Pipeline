@@ -16,7 +16,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import CrawlRequest, RunOut, SettingsIn, TaskOut
+from jobpilot.api.paging import LimitParam, OffsetParam, page_list, page_query
+from jobpilot.api.schemas import CrawlRequest, Page, RunOut, SettingsIn, TaskOut
 from jobpilot.config import get_config, save_local_config
 from jobpilot.crawler.pipeline import default_query
 from jobpilot.orchestrator import crawl_body, queue
@@ -106,9 +107,21 @@ def crawl_setup(db: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.get("/tasks", response_model=list[TaskOut])
-def list_tasks(kind: str | None = None, limit: int = Query(50, ge=1, le=200)) -> list[TaskOut]:
-    return [TaskOut(**t.to_dict()) for t in queue.list(limit=limit, kind=kind)]
+@router.get("/tasks", response_model=Page[TaskOut])
+def list_tasks(
+    kind: str | None = None,
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
+) -> dict:
+    """Recent tasks, newest first.
+
+    ``total`` is the size of the queue's *retained* history, not of every task
+    ever run: the queue lives in memory and keeps the last 50, and a restart
+    empties it. Worth knowing before reading this number as a workload metric.
+    """
+    everything = queue.list(limit=None, kind=kind)
+    window = everything[offset : offset + limit]
+    return page_list([TaskOut(**t.to_dict()) for t in window], len(everything), limit, offset)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut)
@@ -119,17 +132,19 @@ def get_task(task_id: str) -> TaskOut:
     return TaskOut(**task.to_dict())
 
 
-@router.get("/runs", response_model=list[RunOut])
+@router.get("/runs", response_model=Page[RunOut])
 def list_runs(
     kind: str | None = None,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
     db: Session = Depends(get_db),
-) -> list[RunOut]:
+) -> dict:
     """Persisted history of crawl/tailor/apply runs, newest first."""
     stmt = select(Run)
     if kind:
         stmt = stmt.where(Run.kind == kind)
-    rows = list(db.scalars(stmt.order_by(Run.id.desc()).limit(limit)))
+    # Run.id is unique, so ordering by it alone is already a total order.
+    rows, total = page_query(db, stmt.order_by(Run.id.desc()), limit, offset)
 
     counts = dict(
         db.execute(
@@ -143,7 +158,7 @@ def list_runs(
         item = RunOut.model_validate(row)
         item.job_count = counts.get(row.id, 0)
         out.append(item)
-    return out
+    return page_list(out, total, limit, offset)
 
 
 @router.get("/settings")

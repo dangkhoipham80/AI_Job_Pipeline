@@ -84,7 +84,7 @@ def test_versions_list_and_detail(client):
     doc["header"]["position"] = "v2"
     client.put("/cv/master?author=agent", headers=AUTH, json=doc)
 
-    rows = client.get("/cv/master/versions", headers=AUTH).json()
+    rows = client.get("/cv/master/versions", headers=AUTH).json()["items"]
     assert [r["version"] for r in rows] == [2, 1]
     assert rows[0]["author"] == "agent"
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -14,12 +14,14 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { useClampPage, usePaging } from "@/hooks/usePaging";
 import { FollowUps } from "@/components/FollowUps";
 import { OutcomeTracker } from "@/components/OutcomeTracker";
 import { InboxReplies } from "@/components/InboxReplies";
 import { isActive, useTask } from "@/hooks/useTask";
 import { relativeTime } from "@/lib/format";
 import { TaskProgress } from "@/components/TaskProgress";
+import { CompactPager, PageSizeSelect, Pagination } from "@/components/Pagination";
 import { Badge, Button, Card, CardBody, Skeleton } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { Application, ApplyResult, ApplySettings } from "@/types";
@@ -49,10 +51,37 @@ const COLUMNS: { key: ApplyResult; title: string; hint: string; accent: string }
 ];
 
 export function Applications({ version }: { version: number }) {
-  const { data, loading, error, refetch } = useApi(() => api.applications(), [version]);
+  // Each column owns its own query now, so "reload the board" is a counter the
+  // columns depend on rather than one refetch the parent can call. Same shape
+  // as the global `version` in App.tsx, one level down.
+  const [boardVersion, reloadBoard] = useReducer((n: number) => n + 1, 0);
+
+  // One page size across all four columns. A dropdown inside a quarter-width
+  // column, four times over, is more chrome than board.
+  const boardPaging = usePaging("applications");
+
+  // A one-row probe, purely for `total`. Whether the board is empty *at all*
+  // is a different question from whether one column is, and only the first
+  // earns the "approve a CV, then hit Apply" hint.
+  const board = useApi(() => api.applications(undefined, { limit: 1 }), [version, boardVersion]);
+  const { loading, error } = board;
+
   const settings = useApi(() => api.applySettings(), []);
-  const followups = useApi(() => api.followups(), [version]);
-  const suggestions = useApi(() => api.inboxSuggestions(), [version]);
+
+  const followupPaging = usePaging("followups");
+  const followups = useApi(
+    () => api.followups({ limit: followupPaging.size, offset: followupPaging.offset }),
+    [version, boardVersion, followupPaging.size, followupPaging.offset],
+  );
+  useClampPage(followups.data?.total, followupPaging);
+
+  const suggestionPaging = usePaging("inbox-suggestions");
+  const suggestions = useApi(
+    () => api.inboxSuggestions({ limit: suggestionPaging.size, offset: suggestionPaging.offset }),
+    [version, boardVersion, suggestionPaging.size, suggestionPaging.offset],
+  );
+  useClampPage(suggestions.data?.total, suggestionPaging);
+
   const inboxSettings = useApi(() => api.inboxSettings(), []);
   const [busy, setBusy] = useState<number | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -66,14 +95,14 @@ export function Applications({ version }: { version: number }) {
       setActionError(null);
       try {
         await fn();
-        await refetch();
+        reloadBoard();
       } catch (e) {
         setActionError(e instanceof ApiError ? e.message : "Request failed");
       } finally {
         setBusy(null);
       }
     },
-    [refetch],
+    [reloadBoard],
   );
 
   /** Re-dispatching is queued, so the card stays busy until the task lands. */
@@ -93,7 +122,7 @@ export function Applications({ version }: { version: number }) {
     if (!task || isActive(task) || landed.current === task.id) return;
     landed.current = task.id;
     setBusy(null);
-    void refetch();
+    reloadBoard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task]);
 
@@ -118,77 +147,156 @@ export function Applications({ version }: { version: number }) {
       {/* Replies first: what an employer said outranks a reminder to chase
           one, and accepting a suggestion often removes a follow-up below. */}
       <InboxReplies
-        items={suggestions.data ?? []}
+        items={suggestions.data?.items ?? []}
         settings={inboxSettings.data ?? null}
-        onChange={() => {
-          suggestions.refetch();
-          followups.refetch();
-          refetch();
-        }}
+        onChange={reloadBoard}
+        pager={
+          <Pagination
+            page={suggestionPaging.page}
+            size={suggestionPaging.size}
+            total={suggestions.data?.total ?? 0}
+            onPage={suggestionPaging.setPage}
+            onSize={suggestionPaging.setSize}
+            noun="replies"
+          />
+        }
       />
 
       <FollowUps
-        items={followups.data ?? []}
-        onChange={() => {
-          followups.refetch();
-          refetch();
-        }}
+        items={followups.data?.items ?? []}
+        total={followups.data?.total}
+        onChange={reloadBoard}
+        pager={
+          <Pagination
+            page={followupPaging.page}
+            size={followupPaging.size}
+            total={followups.data?.total ?? 0}
+            onPage={followupPaging.setPage}
+            onSize={followupPaging.setSize}
+            noun="follow-ups"
+          />
+        }
       />
 
       {error ? (
         <Card className="p-6 text-sm">
           <span className="font-medium text-critical">Couldn't load applications.</span> {error}
         </Card>
-      ) : loading && !data ? (
+      ) : loading && !board.data ? (
         <div className="grid gap-3 lg:grid-cols-4">
           {COLUMNS.map((c) => (
             <Skeleton key={c.key} className="h-48 rounded-card" />
           ))}
         </div>
-      ) : !data?.length ? (
+      ) : board.data?.total === 0 ? (
         <Card>
           <CardBody className="py-16 text-center text-sm text-ink-muted">
             Nothing dispatched yet. Approve a tailored CV, then hit Apply on the job.
           </CardBody>
         </Card>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-4">
-          {COLUMNS.map((col) => {
-            const items = data.filter((a) => a.result === col.key);
-            return (
-              <section key={col.key} className="flex flex-col gap-2">
-                <header className={cn("rounded-t-card border-t-2 px-1 pt-2", col.accent)}>
-                  <div className="flex items-baseline justify-between">
-                    <h2 className="font-display text-sm font-semibold">{col.title}</h2>
-                    <span className="font-mono text-[11px] text-ink-muted">{items.length}</span>
-                  </div>
-                  <p className="text-[11px] leading-tight text-ink-muted">{col.hint}</p>
-                </header>
-                <div className="flex flex-col gap-2">
-                  {items.map((app) => (
-                    <ApplicationCard
-                      key={app.id}
-                      app={app}
-                      busy={busy === app.id}
-                      onConfirm={() => act(app, () => api.confirmSubmit(app.job_id))}
-                      onFail={() => {
-                        const reason = window.prompt("What went wrong?") ?? "";
-                        if (reason.trim()) act(app, () => api.reportFailure(app.job_id, reason));
-                      }}
-                      onRetry={() => retry(app)}
-                      onOutcome={() => {
-                        void refetch();
-                        followups.refetch();
-                      }}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
+        <>
+          <div className="flex justify-end">
+            <PageSizeSelect
+              size={boardPaging.size}
+              onSize={boardPaging.setSize}
+              label="Cards per column"
+            />
+          </div>
+          <div className="grid gap-3 lg:grid-cols-4">
+            {COLUMNS.map((col) => (
+              <BoardColumn
+                key={col.key}
+                col={col}
+                size={boardPaging.size}
+                reloadKey={`${version}:${boardVersion}`}
+                busy={busy}
+                onConfirm={(app) => act(app, () => api.confirmSubmit(app.job_id))}
+                onFail={(app) => {
+                  const reason = window.prompt("What went wrong?") ?? "";
+                  if (reason.trim()) act(app, () => api.reportFailure(app.job_id, reason));
+                }}
+                onRetry={retry}
+                onOutcome={reloadBoard}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
+  );
+}
+
+/**
+ * One column of the board, with its own window onto its own stage.
+ *
+ * The board used to fetch every application and split them up in the browser,
+ * which meant the page size was shared across all four stages: a hundred
+ * rejections would push the two offers out of the response entirely, and the
+ * "Offers" column would sit there empty looking like a fact about your job
+ * hunt. Per-column queries make the count in each header the real total for
+ * that stage rather than however many of it survived a shared window.
+ */
+function BoardColumn({
+  col,
+  size,
+  reloadKey,
+  busy,
+  onConfirm,
+  onFail,
+  onRetry,
+  onOutcome,
+}: {
+  col: (typeof COLUMNS)[number];
+  size: number;
+  reloadKey: string;
+  busy: number | null;
+  onConfirm: (app: Application) => void;
+  onFail: (app: Application) => void;
+  onRetry: (app: Application) => void;
+  onOutcome: () => void;
+}) {
+  const [page, setPage] = useState(0);
+
+  // The size lives in the parent (one picker for all four columns) but the page
+  // lives here, so the parent's setSize cannot reset it — and page 2 of 10-row
+  // pages is nowhere in 25-row pages. Without this, widening the board from 10
+  // to 25 while on page 2 shows rows 26–50: real rows, wrong window, and
+  // nothing on screen says so. `useClampPage` does not catch it either, because
+  // the page is still inside the (now shorter) range.
+  useEffect(() => setPage(0), [size]);
+
+  const { data } = useApi(
+    () => api.applications(col.key, { limit: size, offset: page * size }),
+    [col.key, size, page, reloadKey],
+  );
+  useClampPage(data?.total, { page, size, setPage });
+
+  const items = data?.items ?? [];
+  return (
+    <section className="flex flex-col gap-2">
+      <header className={cn("rounded-t-card border-t-2 px-1 pt-2", col.accent)}>
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-display text-sm font-semibold">{col.title}</h2>
+          <span className="font-mono text-[11px] text-ink-muted">{data?.total ?? "\u2013"}</span>
+        </div>
+        <p className="text-[11px] leading-tight text-ink-muted">{col.hint}</p>
+      </header>
+      <div className="flex flex-col gap-2">
+        {items.map((app) => (
+          <ApplicationCard
+            key={app.id}
+            app={app}
+            busy={busy === app.id}
+            onConfirm={() => onConfirm(app)}
+            onFail={() => onFail(app)}
+            onRetry={() => onRetry(app)}
+            onOutcome={onOutcome}
+          />
+        ))}
+      </div>
+      <CompactPager page={page} size={size} total={data?.total ?? 0} onPage={setPage} />
+    </section>
   );
 }
 

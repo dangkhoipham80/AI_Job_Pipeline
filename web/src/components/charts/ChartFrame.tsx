@@ -20,9 +20,25 @@ export function TooltipBox({
   );
 }
 
-export function axisColor() {
-  return getComputedStyle(document.documentElement).getPropertyValue("--ink-muted").trim() || "#898781";
+function token(name: string) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
+
+// `--ink-muted` is stored as RGB *channels* ("157 155 144") so Tailwind can
+// compose `rgb(var(--ink-muted) / <alpha-value>)`. Handed to SVG raw, that
+// string is not a colour: the `fill` attribute was silently dropped and every
+// axis label fell back to the browser default near-black — legible enough on
+// the light surface to go unnoticed, invisible on the dark one. Wrap it back up.
+export function axisColor() {
+  const channels = token("--ink-muted");
+  return channels ? `rgb(${channels})` : "#898781";
+}
+// --grid and --viz-surface stay hex precisely so charts can read them straight
+// back (see the comment in index.css).
 export function gridColor() {
-  return getComputedStyle(document.documentElement).getPropertyValue("--grid").trim() || "#e1e0d9";
+  return token("--grid") || "#e1e0d9";
+}
+/** The card surface behind a chart — the colour of the 2px gap between fills. */
+export function surfaceColor() {
+  return token("--viz-surface") || "#ffffff";
 }

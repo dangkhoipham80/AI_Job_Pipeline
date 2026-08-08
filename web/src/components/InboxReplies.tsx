@@ -34,10 +34,13 @@ export function InboxReplies({
   items,
   settings,
   onChange,
+  pager,
 }: {
   items: InboxSuggestion[];
   settings: InboxSettings | null;
   onChange: () => void;
+  /** Rendered under the list; the page owns the page state. */
+  pager?: React.ReactNode;
 }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -172,6 +175,7 @@ export function InboxReplies({
           );
         })}
       </ul>
+      {pager}
     </Card>
   );
 }
