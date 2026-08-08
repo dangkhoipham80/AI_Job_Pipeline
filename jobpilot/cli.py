@@ -65,7 +65,11 @@ def cmd_config(_: argparse.Namespace) -> int:
     print(f"\nenabled sources: {enabled}")
     print("\n[secrets] (redacted)")
     print(f"  database_url        : {_redact_url(sec.database_url)}")
+    # One line per model provider: which one is needed follows from `llm` above,
+    # and "which key am I missing" is the question this command exists to answer.
     print(f"  anthropic_api_key   : {_redact(sec.anthropic_api_key)}")
+    print(f"  openai_api_key      : {_redact(sec.openai_api_key)}")
+    print(f"  google_api_key      : {_redact(sec.google_api_key)}")
     print(f"  jobpilot_api_token  : {_redact(sec.jobpilot_api_token)}")
     print(f"  slack_bot_token     : {_redact(sec.slack_bot_token)}")
     return 0
@@ -239,9 +243,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
     from jobpilot.apply.portal import prefill_with_browser
     from jobpilot.store.db import session_scope
 
+    from jobpilot import llm
+
     cfg = get_config()
     engine = None
-    if not args.no_letter and get_secrets().anthropic_api_key:
+    if not args.no_letter and not llm.blocker("letter"):
         engine = default_letter_engine()
 
     with session_scope() as db:
@@ -346,6 +352,113 @@ def cmd_slack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_llm(args: argparse.Namespace) -> int:
+    """Compare model backends on evidence rather than on vibes (Phase 20b)."""
+    from jobpilot import llm
+
+    if args.llm_command == "stats":
+        return _llm_stats(args)
+    if args.llm_command == "providers":
+        from jobpilot.llm.pricing import CHECKED_ON, policy_for
+        from jobpilot.llm.redact import shadowed_secrets
+        from jobpilot.llm.registry import PROVIDERS, api_key
+
+        cfg = get_config().llm
+        for name, provider in sorted(PROVIDERS.items()):
+            note = policy_for(name, paid_tier=cfg.paid_tier(name))
+            trains = "TRAINS ON INPUT" if note and note.trains_on_input else "no training"
+            key = "key set" if api_key(name) else f"no {provider.env_var}"
+            print(f"{name:8} {provider.default_model:24} {key:22} {trains}")
+
+        # "key set" above is not the same as "the key you edited is the one in
+        # use". An environment variable beats .env and says nothing about it.
+        for name in shadowed_secrets():
+            print(
+                f"\n!! {name} exists BOTH as an environment variable and in .env, "
+                f"with different values.\n"
+                f"   The environment variable wins, so your .env edit is being ignored.\n"
+                f'   Fix on Windows: setx {name} "" then open a NEW terminal.'
+            )
+        print(f"\nData-use notes checked {CHECKED_ON}. Currently configured:")
+        for task in ("tailor", "letter", "classify"):
+            blocked = llm.blocker(task)
+            suffix = f"  [BLOCKED: {blocked}]" if blocked else ""
+            print(f"  {task:9} {cfg.for_task(task):8} {cfg.model_for(task)}{suffix}")
+            for line in llm.warnings(task):
+                print(f"      ! {line}")
+        return 0
+
+    # bench
+    # An explicit --provider is its own answer to "which backend"; only check
+    # the configured one when the caller did not name one.
+    if not args.provider:
+        blocked = llm.blocker(args.task)
+        if blocked:
+            print(f"cannot bench: {blocked}", file=sys.stderr)
+            return 1
+        for line in llm.warnings(args.task):
+            print(f"! {line}", file=sys.stderr)
+
+    from jobpilot.llm.bench import bench_classify, bench_tailor
+    from jobpilot.store.db import session_scope
+
+    if args.task == "classify":
+        result = bench_classify(limit=args.limit, provider=args.provider, model=args.model)
+    else:
+        with session_scope() as db:
+            result = bench_tailor(
+                db, limit=args.limit or 4, provider=args.provider, model=args.model
+            )
+
+    print(f"{result.task} on {result.provider} / {result.model}")
+    if result.task == "classify":
+        print(f"  {result.correct}/{result.total} labels correct")
+    else:
+        print(f"  {result.correct}/{result.total} plans cleared the guardrails")
+        print(f"  {result.first_try}/{result.total} on the first round (no corrective retry)")
+    if result.failed:
+        print(f"  {result.failed} call(s) failed outright")
+    for note in result.notes:
+        print(f"  - {note}")
+    # What it cost is in llm_calls, where every other run's cost also is.
+    print("\ncost and latency: python -m jobpilot.cli llm stats")
+    return 0 if result.total and not result.failed else 1
+
+
+def _llm_stats(args: argparse.Namespace) -> int:
+    from jobpilot.llm.stats import MIN_SAMPLE, backend_stats
+    from jobpilot.store.db import session_scope
+
+    with session_scope() as db:
+        rows = backend_stats(db, task=args.task)
+
+    if not rows:
+        print("no model calls recorded yet")
+        return 0
+
+    header = f"{'task':9} {'provider':8} {'model':24} {'n':>4} {'cost':>9} {'1st try':>8} {'ok':>6} {'p50':>7} {'p95':>7}"
+    print(header)
+    print("-" * len(header))
+    for row in rows:
+        cost = "-" if row["cost_usd"] is None else f"${row['cost_usd']:.4f}"
+        # A rate withheld for a small sample must not look like a missing value:
+        # print the count that is the honest answer instead.
+        first = _rate(row["first_try_rate"], row["attempts"])
+        okay = _rate(row["success_rate"], row["attempts"])
+        print(
+            f"{row['task']:9} {row['provider']:8} {row['model']:24} {row['attempts']:>4} "
+            f"{cost:>9} {first:>8} {okay:>6} {row['p50_latency_ms']:>6}ms {row['p95_latency_ms']:>6}ms"
+        )
+        if row["unpriced_rounds"]:
+            print(f"{'':9} {'':8} `- {row['unpriced_rounds']} round(s) had no price in pricing.py")
+    print(f"\nrates shown from {MIN_SAMPLE} attempts up; below that, 'n=<count>' is the answer")
+    return 0
+
+
+def _rate(value: float | None, attempts: int) -> str:
+    return f"n={attempts}" if value is None else f"{value:.0%}"
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -430,6 +543,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_confirm = sub.add_parser("confirm-submit", help="mark a portal/external job as submitted")
     p_confirm.add_argument("job_id")
     p_confirm.set_defaults(func=cmd_confirm_submit)
+
+    p_llm = sub.add_parser("llm", help="compare model backends: providers/stats/bench (Phase 20b)")
+    llm_sub = p_llm.add_subparsers(dest="llm_command", required=True)
+    llm_sub.add_parser("providers", help="what is configured, what it costs you in privacy")
+    p_llm_stats = llm_sub.add_parser("stats", help="cost, first-try rate and latency per backend")
+    p_llm_stats.add_argument("--task", choices=("tailor", "letter", "classify"), default=None)
+    p_llm_bench = llm_sub.add_parser("bench", help="score the configured backend on known answers")
+    p_llm_bench.add_argument("--task", choices=("tailor", "classify"), default="classify")
+    p_llm_bench.add_argument(
+        "--limit", type=int, default=0, help="how many cases (tailor: real jobs from the DB)"
+    )
+    # Sweeping candidate models should be a loop, not a series of config edits.
+    p_llm_bench.add_argument("--provider", default="", help="override the configured provider")
+    p_llm_bench.add_argument("--model", default="", help="override the model id")
+    p_llm.set_defaults(func=cmd_llm)
 
     p_serve = sub.add_parser("serve", help="run FastAPI backend (Phase 2)")
     p_serve.add_argument("--host", default="127.0.0.1", help="bind host (localhost only)")

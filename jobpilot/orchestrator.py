@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from jobpilot.llm.redact import redact
 from jobpilot.timeutil import vn_now
 
 log = logging.getLogger("jobpilot.orchestrator")
@@ -222,7 +223,11 @@ class TaskQueue:
             # page with a cause, so nothing escapes this thread.
             error, error_kind = str(exc) or type(exc).__name__, type(exc).__name__
             log.warning("task %s (%s) failed: %s: %s", task.id, task.kind, error_kind, error)
-            log.debug("%s", traceback.format_exc())
+            # Scrubbed, because a traceback renders the whole `__cause__` chain.
+            # `LlmError` cleans its own message, but it is raised `from` the SDK
+            # exception — and *that* one still quotes the rejected API key
+            # verbatim. `str(exc)` above is safe; the full traceback is not.
+            log.debug("%s", redact(traceback.format_exc()))
 
         # `status` is the completion signal every consumer polls on, so it is
         # written last — otherwise a watcher can see a finished task whose

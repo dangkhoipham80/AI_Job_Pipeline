@@ -45,3 +45,13 @@ export function sourceColor(source: string): string {
   const i = SOURCE_ORDER.indexOf(source);
   return pool[(i === -1 ? SOURCE_ORDER.length : i) % pool.length];
 }
+
+// Stable color per model provider, so Claude is the same hue in the cost bar,
+// the table and the picker. Assigned by entity and fixed in order — filtering
+// the list must never repaint the survivors.
+const PROVIDER_ORDER = ["claude", "openai", "gemini"];
+export function providerColor(provider: string): string {
+  const pool = categorical();
+  const i = PROVIDER_ORDER.indexOf(provider);
+  return pool[(i === -1 ? PROVIDER_ORDER.length : i) % pool.length];
+}

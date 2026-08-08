@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args, get_origin
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -102,28 +102,81 @@ class LlmCfg(BaseModel):
 
     Default stays ``claude`` — switching a user's model silently would change
     what their applications say.
+
+    ``provider`` is a plain string validated against the registry rather than a
+    ``Literal``. A ``Literal`` has to be edited in four places to admit a fourth
+    backend, and the point of the registry is that it doesn't.
     """
 
-    provider: Literal["claude", "ollama"] = "claude"
-    host: str = "http://127.0.0.1:11434"
-    #: Local model used for any task pointed at ollama without its own override.
-    model: str = "qwen2.5:7b"
+    provider: str = "claude"
 
-    # "" means "use `provider`". Set one to mix — the usual shape is a local
-    # classifier and a paid letter, because that is where the money buys the most.
-    tailor: Literal["", "claude", "ollama"] = ""
-    letter: Literal["", "claude", "ollama"] = ""
-    classify: Literal["", "claude", "ollama"] = ""
+    # "" means "use `provider`". Set one to mix — the three calls differ enough
+    # in difficulty that one backend for all of them is a coincidence, not a
+    # design.
+    tailor: str = ""
+    letter: str = ""
+    classify: str = ""
 
-    tailor_model: str = ""
-    classify_model: str = ""
+    #: provider key -> model id. Anything absent falls back to that provider's
+    #: own default, so a user switching backend does not have to know model ids.
+    models: dict[str, str] = Field(default_factory=dict)
+
+    #: task -> model id, overriding ``models`` for that one call. This is where
+    #: "classify does not need the expensive model" gets said out loud.
+    task_models: dict[str, str] = Field(default_factory=dict)
+
+    #: Gemini is the one provider whose data-use terms differ by tier, and the
+    #: tier cannot be read off an API key. Ask once, record it, warn accordingly.
+    gemini_paid_tier: bool = True
+
+    #: provider -> dollars you have put on that account. Entered by hand because
+    #: it cannot be fetched: every provider's spend endpoint needs an *Admin* key,
+    #: not the ordinary one JobPilot holds (verified — all three answer 401).
+    #: "Remaining" is therefore this number minus what JobPilot itself recorded
+    #: spending, which does not know about usage from anywhere else. It is a
+    #: budget tracker, not a balance, and the UI has to say so.
+    budget_usd: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("provider")
+    @classmethod
+    def _known_provider(cls, value: str) -> str:
+        from jobpilot.llm.registry import PROVIDERS
+
+        if value not in PROVIDERS:
+            raise ValueError(f"unknown provider {value!r} — known: {', '.join(sorted(PROVIDERS))}")
+        return value
+
+    @field_validator("tailor", "letter", "classify")
+    @classmethod
+    def _known_override(cls, value: str) -> str:
+        from jobpilot.llm.registry import PROVIDERS
+
+        if value and value not in PROVIDERS:
+            raise ValueError(f"unknown provider {value!r} — known: {', '.join(sorted(PROVIDERS))}")
+        return value
 
     def for_task(self, task: Literal["tailor", "letter", "classify"]) -> str:
         """The provider that should run ``task``."""
         return getattr(self, task) or self.provider
 
-    def model_for(self, task: Literal["tailor", "classify"]) -> str:
-        return getattr(self, f"{task}_model") or self.model
+    def model_for(self, task: Literal["tailor", "letter", "classify"]) -> str:
+        """The model id for ``task``: task override, then provider default."""
+        from jobpilot.llm.registry import PROVIDERS
+
+        provider = self.for_task(task)
+        return (
+            self.task_models.get(task)
+            or self.models.get(provider)
+            or PROVIDERS[provider].default_model
+        )
+
+    def paid_tier(self, provider: str) -> bool:
+        """Whether ``provider`` is being used on a paid plan.
+
+        Only Gemini distinguishes; everyone else is answered ``True`` because
+        their API terms do not change with the plan.
+        """
+        return self.gemini_paid_tier if provider == "gemini" else True
 
 
 class InboxCfg(BaseModel):
@@ -203,8 +256,14 @@ class Secrets(BaseSettings):
     )
 
     database_url: str = "postgresql+psycopg://jobpilot:jobpilot@localhost:5432/jobpilot"
-    anthropic_api_key: str = ""
     jobpilot_api_token: str = "changeme"
+
+    # One per model provider; which one is needed follows from `llm` in
+    # config.yaml. `jobpilot.llm.blocker` names the missing one before a task is
+    # queued rather than after it has been sitting in the queue.
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    google_api_key: str = ""
 
     slack_bot_token: str = ""
     slack_app_token: str = ""
@@ -285,13 +344,48 @@ def get_config(path: Path | None = None) -> Config:
     return Config.model_validate(resolve_config(_read_yaml(p), _read_yaml(LOCAL_CONFIG_PATH)))
 
 
+def prune_to_schema(model: type[BaseModel], data: dict) -> dict:
+    """Drop keys ``model`` does not declare, recursively.
+
+    Pydantic *ignores* unknown fields rather than rejecting them, so validation
+    happily passes on a payload carrying extras — and the overlay is written
+    from the raw dict, not from the validated object. A ``PUT /settings`` body
+    of ``{"llm": {"anthropic_api_key": "sk-…"}}`` would therefore validate and
+    then persist a live API key into ``config.local.yaml``.
+
+    That file is gitignored, so it is not a commit risk; it is a *principle 6*
+    risk — secrets live in ``.env`` and nowhere else. Pruning here rather than
+    in one request schema fixes every section at once: ``app``, ``crawl``,
+    ``apply`` and ``cv`` are all plain dicts on the way in and had the same hole.
+    """
+    out: dict = {}
+    for key, value in data.items():
+        field = model.model_fields.get(key)
+        if field is None:
+            continue
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            out[key] = prune_to_schema(annotation, value) if isinstance(value, dict) else value
+            continue
+        if get_origin(annotation) is list and isinstance(value, list):
+            args = get_args(annotation)
+            item = args[0] if args else None
+            if isinstance(item, type) and issubclass(item, BaseModel):
+                out[key] = [prune_to_schema(item, v) if isinstance(v, dict) else v for v in value]
+                continue
+        out[key] = value
+    return out
+
+
 def save_local_config(patch: dict) -> Config:
     """Merge ``patch`` into the overlay, validate the result, then persist it.
 
     Validating before writing means a bad Settings save is rejected rather than
     leaving the app unable to load its own config on next start.
     """
-    merged_overlay = deep_merge(_read_yaml(LOCAL_CONFIG_PATH), patch)
+    # Prune before merging: what gets written is the raw dict, so anything not
+    # removed here reaches disk regardless of what validation thinks.
+    merged_overlay = deep_merge(_read_yaml(LOCAL_CONFIG_PATH), prune_to_schema(Config, patch))
     # Validate exactly what get_config() will build, or a save can pass here and
     # then fail on the next start.
     Config.model_validate(resolve_config(_read_yaml(CONFIG_PATH), merged_overlay))

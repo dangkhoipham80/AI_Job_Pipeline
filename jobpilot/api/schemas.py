@@ -300,6 +300,103 @@ class OutcomeStats(BaseModel):
     offer_rate: float | None = None
 
 
+class BackendStatsOut(BaseModel):
+    """What one (task, provider, model) combination has cost and delivered.
+
+    ``first_try_rate`` is the quality number: the share of tasks the guardrails
+    accepted without a corrective round. It and ``success_rate`` are ``None``
+    below ``llm.stats.MIN_SAMPLE`` — three calls with two failures is not "33%",
+    it is three calls, and a percentage invites a comparison the sample cannot
+    support.
+
+    ``cost_usd`` is ``None`` when no round on record carried a price;
+    ``unpriced_rounds`` says how many were missing, so a total built from half
+    the rows is not read as if it covered all of them.
+    """
+
+    task: str
+    provider: str
+    model: str
+    attempts: int
+    rounds: int
+    cost_usd: float | None = None
+    unpriced_rounds: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    p50_latency_ms: int = 0
+    p95_latency_ms: int = 0
+    first_try_rate: float | None = None
+    success_rate: float | None = None
+
+
+class ModelOptionOut(BaseModel):
+    """One model the picker can offer, with what it costs to run.
+
+    Sourced from the price table, so the list is exactly "models we can tell you
+    the price of". Anything else is still settable — the field accepts free text —
+    but it will report an unknown cost, and saying so up front beats a dropdown
+    that silently omits the model somebody wants.
+    """
+
+    provider: str
+    model: str
+    input_per_mtok: float
+    output_per_mtok: float
+    #: False when the provider's live model list does not include this id — the
+    #: price table outlives the models it prices.
+    available: bool = True
+
+
+class ProviderSpendOut(BaseModel):
+    """What one provider has cost, against what you said you put on it.
+
+    ``remaining`` is **not** a balance read from the provider: every vendor's
+    spend endpoint needs an *Admin* key, not the ordinary one JobPilot holds
+    (checked — all three answer 401). It is ``budget_usd`` minus what JobPilot
+    itself recorded, so it knows nothing about usage from anywhere else. A
+    budget tracker, not an account balance, and the page says so.
+    """
+
+    provider: str
+    has_key: bool
+    spent_usd: float
+    #: Rounds with no price in the table — the spend figure excludes them.
+    unpriced_rounds: int
+    budget_usd: float | None = None
+    remaining_usd: float | None = None
+    #: Live model ids the key can see. Empty when the provider could not be
+    #: reached, which is not the same as "this provider has no models".
+    models: list[str] = Field(default_factory=list)
+
+
+class LlmStatsOut(BaseModel):
+    """The backend comparison, plus what is currently configured to run each task."""
+
+    #: Below this many attempts, rates are withheld — see ``BackendStatsOut``.
+    min_sample: int
+    backends: list[BackendStatsOut] = Field(default_factory=list)
+    #: What the model picker can offer, grouped by provider.
+    catalogue: list[ModelOptionOut] = Field(default_factory=list)
+    #: Per-provider spend, budget and live model list.
+    spend: list[ProviderSpendOut] = Field(default_factory=list)
+    #: Total recorded spend across every provider.
+    total_spent_usd: float = 0.0
+    #: provider -> whether its API key is present, so the picker can grey out a
+    #: backend you cannot actually reach.
+    providers: dict[str, bool] = Field(default_factory=dict)
+    #: Secrets whose .env value is being overridden by a different environment
+    #: variable. Empty normally; when not, it explains a "wrong key" that looks
+    #: unexplainable — see ``llm/redact.shadowed_secrets``.
+    shadowed_env: list[str] = Field(default_factory=list)
+    #: task -> provider, so the page can say which row is the one in force.
+    configured: dict[str, str] = Field(default_factory=dict)
+    #: task -> sentences about what that provider may do with the input.
+    #: Empty for every provider that does not train on API data.
+    warnings: dict[str, list[str]] = Field(default_factory=dict)
+    #: task -> why it cannot run right now (missing key), '' when it can.
+    blockers: dict[str, str] = Field(default_factory=dict)
+
+
 # --------------------------------------------------------------------------- #
 # Inbox suggestions (Phase 19)
 # --------------------------------------------------------------------------- #
@@ -402,6 +499,10 @@ class SettingsIn(BaseModel):
     apply: dict | None = None
     cv: dict | None = None
     sources: list[dict] | None = None
+    #: Which model runs which task. Patchable so the backend can be switched from
+    #: the dashboard: choosing a model is a decision you make while looking at
+    #: what it costs, and that is a different room from a text editor.
+    llm: dict | None = None
 
 
 class ReviewOut(BaseModel):

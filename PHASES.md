@@ -198,3 +198,212 @@ nằm ở `CLAUDE.md` mục "Nợ kỹ thuật" và "Thêm một site crawl mớ
   **Và một test tự phơi mình ra**: `test_missing_tokens_produce_a_readable_error` chỉ ép rỗng **một** trong ba khoá Slack, hai khoá kia rơi xuống `.env` thật — nên nó xanh chỉ vì máy dev *chưa* cấu hình Slack, và đỏ ngay khi user điền token. Test không được phụ thuộc vào việc máy chạy nó có cấu hình gì.
 
   Mặc định vẫn là `claude` cho cả ba: đổi model của user trong im lặng là đổi nội dung đơn họ gửi đi.
+
+- ✅ **Phase 20b** — Một tầng provider thay cho hai backend rời: `jobpilot/llm/` giờ có `base.py`
+  (hợp đồng `StructuredClient`), ba client (`claude` / `openai` / `gemini`), `registry.py`
+  (dict `PROVIDERS`), `schema.py`, `pricing.py`, `usage.py`, `stats.py`, `bench.py`.
+  **Ollama bị gỡ hẳn** theo yêu cầu user; `classify` chuyển sang cloud.
+
+  **Lý do thật không phải "dọn dead code".** Phase 20 để ngỏ bốn hướng cho tailor local, và
+  câu trả lời hoá ra nằm ở một dòng khác trong nợ kỹ thuật: *Anthropic hết credit*. Cộng với
+  `tailor` local 0/4 ⇒ **không có backend nào chạy được cho tailor**. Multi-provider là lối
+  thoát khỏi tình trạng đó; "rẻ hơn" thì không phải lý do — tổng chi phí là **$7** cho 100
+  tailor + 300 email.
+
+  **Cái đã mất, ghi thẳng ra:** `classify` từng chạy local 5/5 và nội dung thư nhà tuyển dụng
+  **không rời khỏi máy**. Giờ nó đi qua API của provider. Docstring ở `apply/inbox.py` đã sửa
+  cho khớp — để nguyên là để lại một lời hứa không còn đúng. Phần *vẫn* đúng và vẫn phải đứng
+  đầu: thư **không khớp đơn nào** dừng lại trong máy, không bao giờ tới API.
+
+  **Sáu class engine → ba.** Trước đó `_get_client()` của Anthropic bị chép nguyên văn **3 lần**
+  và `letter.py` giữ **hai bản** vòng retry (Claude / Ollama) gần giống nhau — đúng thứ
+  `_GuardedTailor` được viết ra để tránh, nhưng letter không dùng nó. Thêm 2 provider theo lối
+  cũ là **6 class + 6 bản copy**. Giờ mỗi task một engine cầm một `StructuredClient`, và bất
+  biến "mọi backend đi qua cùng một vòng retry" do **không còn gì để fork** giữ, chứ không phải
+  do một test giữ (test cũ `OllamaTailorEngine.tailor is ClaudeTailorEngine.tailor` mất chỗ
+  đứng vì lý do tốt).
+
+  **Ba provider không nhận cùng một JSON Schema** — tra tài liệu chính thức, không đoán:
+  OpenAI strict **có** hỗ trợ `$ref`/`$defs` (kể cả đệ quy), giới hạn 10 tầng / 5.000 property /
+  1.000 enum, không hỗ trợ `allOf`/`not`/`if-then-else`; Gemini chỉ liệt kê một **subset** và
+  cảnh báo schema lồng sâu có thể bị từ chối, nên `flatten_schema` (viết cho Ollama) được giữ
+  lại và dùng cho Gemini. `strictify` cho OpenAI có một bẫy đáng ghi: "mọi field phải nằm trong
+  `required`" **không** có nghĩa bỏ optional — optional phải nới thành **nullable**, nếu không
+  model bị *ép bịa* ra `summary`. Đọc sai chỗ này là biến một luật về hình dạng thành một lệnh
+  bịa nội dung.
+
+  **SDK đúng tên:** Gemini là `google-genai` (`from google import genai`). `google-generativeai`
+  **đã deprecated** (hết hỗ trợ 2025-08-31) và hai cái cách nhau một chữ trong `pip install`.
+
+  **Đo thay vì đoán.** Bảng `llm_calls` (migration 0009), **một row mỗi round** — kể cả round bị
+  guard từ chối, kể cả lượt gọi hỏng. Lý do: một backend rẻ mỗi lượt mà phải retry một nửa số
+  lần thì **không** rẻ, và một bảng chỉ giữ round được nhận sẽ làm nó trông đẹp nhất ở đúng cột
+  người ta sort. `GET /stats/llm` + `jobpilot llm stats` + `jobpilot llm bench`.
+
+  **Hai luật "không biết ≠ hỏng" áp vào số liệu:**
+  - `cost_usd` **NULL** khi model không có trong `pricing.PRICES`, không phải `0.00`. Bảng giá cũ
+    đi bằng cách nằm yên, nên trường hợp không biết giá là **bình thường**, không phải ngoại lệ —
+    và $0.00 sẽ khiến backend ít biết nhất trông rẻ nhất. `unpriced_rounds` đi kèm mọi tổng.
+  - Dưới `MIN_SAMPLE = 10` thì **không hiện %**, hiện `n=<count>`. 3 lượt 2 lỗi không phải "33%";
+    tỉ lệ mời người ta so hai backend trên 3 lượt mỗi bên. Cùng luật `outcome_counts` đã theo.
+
+  **Cảnh báo dữ liệu phải hẹp mới có người đọc.** Tra terms: Anthropic / OpenAI / Gemini **trả
+  tiền** đều không train trên input API. Chỉ **Gemini free tier** là có, và terms ghi thẳng *"Do
+  not submit sensitive, confidential, or personal information to the Unpaid Services"* — trong
+  khi `tailor`/`letter` gửi **cả Master CV**. Không đọc được tier từ API key ⇒ `llm.gemini_paid_tier`.
+  Là **thông báo, không phải cổng chặn** (user chọn "cho hết, cảnh báo rõ").
+
+  **Bug chỉ lộ ra khi chạy thật — và nó lộ ra ở đúng chỗ mỉa mai nhất.** `llm bench` chạy xong,
+  in kết quả, và **mất sạch** row telemetry: bench dùng `Applied(0, ...)` (application giả), FK
+  `llm_calls.application_id` vỡ, và `record()` *nuốt lỗi theo thiết kế* nên không ai biết. Tức
+  là lệnh mà toàn bộ nhiệm vụ là **tạo ra một phép đo** đã lặng lẽ vứt phép đo đi. Sửa hai lớp:
+  `ModelClassifier` truyền `app.application_id or None`, và `record()` ghi **hai lần** — có link,
+  rồi nếu vỡ thì không link. Mất cái liên kết còn hơn mất con số. Bài học: *"nuốt lỗi để không
+  làm hỏng việc chính"* đúng, nhưng nó cũng chính là thứ giấu lỗi khỏi mắt mình.
+
+  **Console Windows là cp1252.** Em dash trong chuỗi `print()` làm `UnicodeEncodeError` và giết
+  cả lệnh. Mọi chuỗi in ra terminal giờ ASCII (docstring thì không sao). `cli.py:326` và `:446`
+  vẫn còn hai em dash **có sẵn từ trước** — cùng lỗi tiềm ẩn, chưa sửa vì ngoài phạm vi.
+
+  **Hai thứ review gate bắt được, ghi lại vì cả hai đều thuộc loại "chỉ sai một chiều":**
+  - `first_try_rate` **tính sai** khi một task retry rồi *vẫn* hỏng. `first_try = successes -
+    retries`, nhưng `retries` đếm **mọi** round-2 trong khi `successes` không hề chứa task hỏng
+    ⇒ một task hỏng triệt tiêu một task first-try không liên quan. 8 sạch + 1 retry-ok +
+    1 retry-fail cho **70%** thay vì 80%; 5 sạch + 5 retry-fail cho **0%** thay vì 50%, và
+    `max(..., 0)` **che** lỗi chứ không sửa. Luật rút ra: *hai vế của một phép trừ phải đang đếm
+    cùng một tập*. Sai theo hướng làm backend trông tệ hơn thực tế — trong đúng bảng dùng để
+    chọn backend. Đã ghim 2 test.
+  - `LlmCall.ok` mặc định `True` trong khi `CallLog.accepted` mặc định `False` với lý do đã viết
+    rõ ("một row chưa ai set kết quả không phải là một thành công không ai nhận được"). Hai mặc
+    định ngược nhau cho cùng một khái niệm. Đổi cả model lẫn `server_default` về `false`.
+
+  **Thay đổi hành vi nhỏ, ghi ra vì nó không tự hiện:** `ClaudeClassifier` cũ **không** truyền
+  `thinking`; `ClaudeClient` dùng chung thì có (`adaptive`). Giữ nguyên một call shape thay vì
+  thêm một knob theo task vào hợp đồng dùng chung — `adaptive` nghĩa là model tự quyết, và với
+  6 nhãn thì nó gần như không nghĩ. Nếu sai thì **chính bảng phase này thêm** sẽ cho thấy:
+  `llm stats` đo output token và latency của `classify` tách riêng.
+
+  **Blocker đổi nghĩa:** không còn "ollama serve có chạy không" mà là "provider đang cấu hình đã
+  có API key chưa". Nó nằm trong `get_engine()` của route chứ **không** trong route body — để
+  test tự cấp engine không bị đòi key, đúng cái bẫy `test_missing_tokens_produce_a_readable_error`
+  đã dính ở Phase 20 (xanh/đỏ tuỳ máy chạy có cấu hình gì).
+
+  **Verify thật:** 637 test, ruff + `tsc` sạch; `alembic upgrade head` → `downgrade -1` → `upgrade`
+  trên **PostgreSQL 17 local**; `llm bench --task classify` chạy đầu-cuối và ghi 5 row vào
+  `llm_calls` thật; `GET /stats/llm` trả đúng (`first_try_rate=None`, `n=5`, `cost_usd=None`,
+  `unpriced_rounds=5`); trỏ `llm.tailor: gemini` + `gemini_paid_tier: false` → `POST /jobs/../tailor`
+  trả **409** kèm lý do đọc được, và cảnh báo về Master CV hiện đúng.
+  **Chưa verify được: một lượt gọi *thành công*.** Anthropic hết credit, `OPENAI_API_KEY` bị từ
+  chối 401, chưa có `GOOGLE_API_KEY` — nên **shape request của OpenAI/Gemini chưa đối chiếu với
+  API thật** (401 xảy ra trước khi request được validate). Đó là việc đầu tiên khi có key.
+
+- ✅ **Phase 20c** — Quản lý model từ Web, và ba luật user đặt: **(1) không leak key, (2) đổi được
+  model + có dashboard đo, (3) mặc định model rẻ nhất mà vẫn hiệu quả.** Trang `/models`
+  (`web/src/pages/Models.tsx`) + `llm/redact.py` + `llm/registry.list_models` + `llm.budget_usd`.
+
+  **Cả ba provider đã gọi thật thành công** (trước đó chưa verify được lượt nào). Đo trên bộ 5
+  email của Phase 20, **tất cả 5/5**:
+
+  | model | 5 email | p50 |
+  |---|---|---|
+  | `gpt-4o-mini` | **$0.0005** | 1324ms |
+  | `gemini-3.1-flash-lite` | $0.0007 | **705ms** |
+  | `gemini-3.5-flash-lite` | $0.0010 | 773ms |
+  | `gpt-4.1-mini` | $0.0013 | 1185ms |
+  | `claude-haiku-4-5` | $0.0043 | 1256ms |
+  | `gemini-3.5-flash` | $0.0187 | 2110ms |
+
+  Rẻ nhất **và** nhanh nhất là `gemini-3.1-flash-lite` ⇒ đã đặt cho `classify` **qua chính cái
+  picker trên web**, tức là vừa test tính năng vừa áp dụng luật 3. `tailor` trên
+  `claude-opus-4-8` chạy job thật: **2/2 qua guardrail ngay vòng đầu**. Ghi chú: `gemini-3.5-flash`
+  đắt gấp ~27× bản lite vì **thinking token tính giá output**.
+
+  **Leak thật, tìm được vì chạy thật.** Key OpenAI sai ⇒ provider trả *"Incorrect API key
+  provided: sk-proj-…"*, và chuỗi đó đi thẳng vào `llm_calls.error`, ra CLI, ra API. Nên scrub
+  đặt ở **chỗ tạo ra lỗi** (`LlmError.__init__` + `CallLog`), không phải ở từng nơi lỗi đi tới —
+  có một chỗ đầu và vô số chỗ sau, và những chỗ thêm sau chính là những chỗ không ai nhớ bảo vệ.
+  Hai lớp: **giá trị thật** (mọi secret process đang giữ) + **hình dạng** (`sk-…`, `AIza…`,
+  `Bearer …`, password trong DSN) cho key mình không giữ. **Và ngay sau đó lộ thêm một chỗ nữa**:
+  `list_models` log exception thô — quên `redact()`. Bài học: mỗi `log.warning` mang exception
+  của SDK là một đường rò mới.
+
+  **Biến môi trường đè `.env` — mất một buổi debug.** User test key bằng PowerShell → 200; app
+  gửi đi → 401. Cả hai key **dài đúng 164 ký tự, cùng prefix `sk-proj-`**, nên không có gì trông
+  sai. Nguyên nhân: pydantic-settings **ưu tiên biến môi trường hơn `.env`**, và máy còn một
+  `OPENAI_API_KEY` cũ. Triệu chứng *y hệt* key hỏng, nên mọi bước tiếp theo (chép lại key, kiểm
+  tra dấu nháy, đếm độ dài) đều đi soi đúng cái file **không được đọc**. Cách tìm ra: **hash hai
+  giá trị rồi so** — không in ra. Giờ `llm providers` và trang `/models` cảnh báo thẳng
+  (`redact.shadowed_secrets`).
+
+  **"Credit còn lại" không lấy được từ provider** — đã thử: Anthropic `cost_report` và OpenAI
+  `organization/costs` đều đòi **Admin key**, trả 401 với key thường. Nên `llm.budget_usd` là số
+  **user tự nhập**, còn "đã dùng" là phần **JobPilot tự đo**; "còn lại" là hiệu hai số đó và UI
+  nói rõ **đây là bộ đếm ngân sách, không phải số dư tài khoản**. Không bịa ra một con số trông
+  như số dư — đúng luật "sai dữ liệu *trông như đúng* tệ hơn thiếu dữ liệu".
+
+  **Ba bug kiểu "báo cáo thành công nhưng sai", cả ba chỉ lộ khi chạy thật:**
+  1. `thinking={"type":"adaptive"}` áp cho mọi model ⇒ Haiku trả 400 *"adaptive thinking is not
+     supported on this model"*. Không phải chuyện tốn token — nó **chặn luôn cả tầng model rẻ**,
+     tức chặn đúng luật 3. Sửa: registry tắt thinking cho `classify`, và client **tự tắt rồi gọi
+     lại một lần** khi gặp đúng lỗi đó — không hardcode danh sách model (danh sách sai ngay tuần
+     có model mới).
+  2. `models.list()` của Gemini **có** `gemini-2.5-flash`, nhưng `generateContent` trả **404
+     "no longer available to new users"**. Danh sách là *menu*, không phải lời hứa.
+  3. So id model bằng `==` đánh dấu `claude-haiku-4-5` là "không khả dụng" vì Anthropic liệt kê
+     bản có ngày `claude-haiku-4-5-20251001`. Phải so **theo prefix** — và cái bị đánh dấu sai
+     lại đúng là model rẻ đạt 5/5, tức bug chỉ đường **tránh xa** câu trả lời mà trang này sinh
+     ra để tìm.
+
+  **Một bug do nuốt lỗi, lần thứ hai trong hai phase.** `list_models` trả `[]` cho Gemini; thêm
+  log mới thấy *"Cannot send a request, as the client has been closed"* — `genai.Client(...)` viết
+  inline trong comprehension bị GC giữa chừng vì pager là lazy. Đọc như lỗi auth mà không phải.
+
+  **Hai test tự phơi mình ra khi config đổi:**
+  `test_the_shipped_config_is_what_it_claims_to_be` đọc `get_config()` (đã merge
+  `config.local.yaml`) nên đỏ ngay khi user đổi backend — **đúng cái bẫy máy-phụ-thuộc mà Phase
+  20 đã sửa một lần**; giờ đọc thẳng `config.yaml`. Và test chống-leak viết theo *snapshot* danh
+  sách field thì vỡ mỗi lần thêm tính năng ⇒ đổi thành **luật**: tên giống secret **và** kiểu
+  string. Viết luật cũng phải cẩn thận: bản đầu bắt nhầm `has_key` (bool) và `input_tokens` (int) —
+  một check hay kêu oan là một check bị người ta tắt.
+
+  **Verify:** 642 test, ruff + `tsc` sạch; trang `/models` chụp thật ở **light + dark**, console
+  sạch; đổi provider+model bằng chuột → ghi `config.local.yaml` → `llm bench` chạy đúng backend
+  mới. Lưu ý khi verify web: **API chạy bằng uvicorn không `--reload` sẽ giữ code cũ** — hai
+  "bug" đầu tiên nhìn thấy trên trang hoá ra chỉ là server chưa restart.
+
+- ✅ **Phase 20c (tiếp)** — Sau khi user gỡ biến môi trường `OPENAI_API_KEY` cũ: `.env` được đọc
+  đúng (fingerprint khớp), `shadowed_secrets()` rỗng, cảnh báo biến mất khỏi `llm providers` và
+  trang `/models`. **OpenAI chạy thật cho cả hai schema** — `MailVerdict` 5/5 và `TailorPlan`
+  **1/1 qua guardrail vòng đầu** dưới strict mode. Tức cả ba provider giờ đã verify trên cả
+  schema phẳng lẫn schema lồng; không còn đường nào "chưa bao giờ gọi thật".
+
+  **Và bộ đo lập tức bác bỏ kết luận trước đó của chính mình.** Ở **n=5**, `gemini-3.1-flash-lite`
+  là rẻ nhất *và* nhanh nhất (p50 **705ms**). Lên **n=10**: p50 thành **2732ms**, còn `gpt-4o-mini`
+  1101ms với giá thấp hơn ⇒ **đảo ngược cả hai tiêu chí**. Đã đổi `classify` sang
+  `openai/gpt-4o-mini`. Đây chính xác là thứ `MIN_SAMPLE` được viết ra để ngăn — và nó ngăn được
+  người viết ra nó, vì tôi đã đọc con số `n=5` như thể nó là một tỉ lệ. **Luật rút ra: khi cột tỉ
+  lệ còn hiện `n=<count>` thì chưa được chốt model.**
+
+  `tailor` trên `gpt-4.1`: 1/1 vòng đầu, ~$0.016 và ~9s so với `claude-opus-4-8` ~$0.10 và ~39s.
+  **Chưa đổi** — guardrail chỉ chứng minh *không bịa*, không chứng minh xếp hạng tốt; và n=1 thì
+  không phải bằng chứng. Muốn đổi thì phải đọc bản CV thật ở trang CV Review.
+
+  **Review gate (2 subagent, cả hai chạy trên diff thật):** `phase-reviewer` → APPROVE kèm 2
+  "nên sửa"; một agent **security review** riêng → 3 finding. Hai bên **độc lập tìm ra cùng một
+  lỗ** (`PUT /settings` ghi được secret xuống `config.local.yaml`), điều đó làm nó đáng tin hơn
+  hẳn một report đơn lẻ. Đã sửa cả ba trước khi push:
+  1. **Traceback rò key** (`orchestrator.py:225`) — nặng nhất, và tinh vi nhất. `LlmError` scrub
+     *message* của chính nó, nhưng nó được `raise ... from exc`, và **exception gốc của SDK vẫn
+     trích nguyên key**. `str(exc)` sạch, `traceback.format_exc()` thì **không** — mà task hỏng
+     nào cũng log cái thứ hai. Bài học tổng quát: scrub theo *chuỗi nguyên nhân*, không chỉ theo
+     một object; bất kỳ chỗ nào render traceback là một sink mới.
+  2. **`PUT /settings` ghi secret ra `config.local.yaml`** — Pydantic *bỏ qua* field lạ chứ không
+     từ chối, nên validate vẫn pass trong khi overlay được ghi từ **dict thô**. Sửa bằng
+     `config.prune_to_schema()` đặt **trước** bước merge, và áp cho **mọi** section (`app`,
+     `crawl`, `apply`, `cv` cùng dính lỗ này, không riêng `llm`).
+  3. **`_offered()` prefix quá lỏng** — `gemini-3.5-flash-lite` "bảo lãnh" cho
+     `gemini-3.5-flash`, khiến một model đã bị withdraw hiện ra là dùng được. Prefix chỉ hợp lệ
+     khi phần đuôi là **8 chữ số** (date snapshot của Anthropic). Date = cùng model; `-lite` =
+     model khác.
+  Thêm `ya29.` vào `_SHAPES` (chưa dùng tới, nhưng rẻ), và bỏ `BenchResult.latency_ms` +
+  `median_latency_ms` — dead code chưa bao giờ được ghi. 645 test.

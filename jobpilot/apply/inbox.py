@@ -29,6 +29,11 @@ company       The sender's domain looks like the company name, and we
 Mail that matches nothing is dropped where it was read. Your personal mail, your
 bank, your newsletters — never classified, never sent to an API, never stored.
 That ordering is the privacy design, not an optimisation.
+
+What *does* match goes to the configured model provider: subject, sender, and up
+to ``MAX_BODY_CHARS`` of body. No CV, no contact details beyond what the employer
+already wrote to you — but it does leave the machine, so the local matching above
+is the part doing the protecting, and it is the part that must stay first.
 """
 
 from __future__ import annotations
@@ -395,58 +400,46 @@ class Classifier(Protocol):
     def classify(self, mail: MailMessage, app: Applied) -> MailVerdict: ...
 
 
-class ClaudeClassifier:
-    """Same model and refusal handling as the tailor and letter engines."""
+@dataclass
+class ModelClassifier:
+    """Read one matched email and say what it means.
 
-    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        from jobpilot.config import get_secrets
-        from jobpilot.tailor.engine import MODEL
+    The easiest of the three model calls by a distance — six labels and one
+    sentence copied out verbatim — and the one whose guardrail is purely
+    mechanical: the quote either appears in the message or it doesn't. A weaker
+    model shows up here as a dropped suggestion, never as a wrong outcome, which
+    is why this is the call worth pointing at a cheaper model
+    (``llm.task_models.classify``).
 
-        self.model = model or MODEL
-        self._api_key = api_key if api_key is not None else get_secrets().anthropic_api_key
-        self._client = None
+    No retry loop, deliberately. A verdict that fails ``check_verdict`` is stored
+    as ``unusable`` rather than re-asked: the answer was cheap, it was wrong in a
+    way a second ask rarely fixes, and storing it stops the same message being
+    paid for again on the next sync.
+    """
 
-    def _get_client(self):
-        from jobpilot.tailor.engine import TailorError
-
-        if self._client is None:
-            try:
-                import anthropic
-            except ImportError as exc:  # pragma: no cover - env dependent
-                raise TailorError(
-                    "anthropic SDK not installed — run: pip install -e '.[tailor]'"
-                ) from exc
-            self._client = (
-                anthropic.Anthropic(api_key=self._api_key)
-                if self._api_key
-                else anthropic.Anthropic()
-            )
-        return self._client
+    client: Any
 
     def classify(self, mail: MailMessage, app: Applied) -> MailVerdict:
-        from jobpilot.tailor.engine import MAX_TOKENS, TailorError
+        from jobpilot.llm.base import LlmError
+        from jobpilot.llm.usage import call_log
+        from jobpilot.tailor.engine import TailorError
 
-        try:
-            response = self._get_client().messages.parse(
-                model=self.model,
-                max_tokens=MAX_TOKENS,
-                system=[
-                    {
-                        "type": "text",
-                        "text": CLASSIFIER_RULES,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=[{"role": "user", "content": classify_prompt(mail, app)}],
-                output_format=MailVerdict,
-            )
-        except Exception as exc:
-            raise TailorError(f"Claude request failed: {exc}") from exc
-        if response.stop_reason == "refusal":
-            raise TailorError("Claude declined to classify this message")
-        if response.parsed_output is None:
-            raise TailorError("Claude returned no parsable verdict")
-        return response.parsed_output
+        # `or None`: the benchmark drives this with a synthetic application that
+        # was never stored, and id 0 is its sentinel. Writing it would violate
+        # the foreign key and lose the measurement — from the one command whose
+        # entire job is to produce a measurement.
+        with call_log("classify", application_id=app.application_id or None) as usage:
+            try:
+                completion = self.client.structured(
+                    system=CLASSIFIER_RULES,
+                    messages=[{"role": "user", "content": classify_prompt(mail, app)}],
+                    schema=MailVerdict,
+                )
+            except LlmError as exc:
+                raise TailorError(str(exc)) from exc
+            verdict = usage.add_from(completion)
+            usage.succeeded()
+            return verdict
 
 
 @dataclass
@@ -465,48 +458,11 @@ class FixtureClassifier:
         return found
 
 
-@dataclass
-class OllamaClassifier:
-    """Read one email with a model on your own machine.
-
-    The easiest of the three calls by a distance — six labels and one sentence
-    copied out verbatim — and the one whose guardrail is purely mechanical: the
-    quote either appears in the message or it doesn't. A weaker model shows up
-    as a dropped suggestion, never as a wrong outcome.
-    """
-
-    client: Any = None
-
-    def __post_init__(self) -> None:
-        if self.client is None:
-            from jobpilot.config import get_config
-            from jobpilot.llm.ollama import OllamaClient
-
-            cfg = get_config().llm
-            self.client = OllamaClient(model=cfg.model_for("classify"), host=cfg.host)
-
-    def classify(self, mail: MailMessage, app: Applied) -> MailVerdict:
-        from jobpilot.llm.ollama import OllamaError
-
-        try:
-            return self.client.structured(
-                system=CLASSIFIER_RULES,
-                messages=[{"role": "user", "content": classify_prompt(mail, app)}],
-                schema=MailVerdict,
-            )
-        except OllamaError as exc:
-            from jobpilot.tailor.engine import TailorError
-
-            raise TailorError(str(exc)) from exc
-
-
 def default_classifier() -> Classifier:
     """The classifier `llm.classify` (or `llm.provider`) asks for."""
-    from jobpilot.config import get_config
+    from jobpilot.llm.registry import client_for
 
-    if get_config().llm.for_task("classify") == "ollama":
-        return OllamaClassifier()
-    return ClaudeClassifier()
+    return ModelClassifier(client_for("classify"))
 
 
 # --------------------------------------------------------------------------- #

@@ -20,6 +20,7 @@ import type {
   ReviewData,
   RunRecord,
   Settings,
+  LlmStats,
   Stats,
   Task,
 } from "@/types";
@@ -69,6 +70,7 @@ const cvPath = (scope: string) => `/cv/${encodeURIComponent(scope)}`;
 
 export const api = {
   stats: () => req<Stats>("/stats"),
+  llmStats: (live = false) => req<LlmStats>(`/stats/llm${live ? "?live=true" : ""}`),
   jobs: (query: JobsQuery = {}) => req<Job[]>(`/jobs${qs(query as Record<string, unknown>)}`),
   job: (id: string) => req<JobDetail>(jobPath(id)),
   /* Manual entry — the way in for postings no crawler may fetch, LinkedIn above

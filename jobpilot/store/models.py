@@ -277,3 +277,61 @@ class CvVersion(Base):
     # diff (Phase 5). Empty for hand edits made in CV Studio.
     meta: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LlmCall(Base):
+    """One round-trip to a model, priced and timed (Phase 20b).
+
+    Written for every round, including the ones the guardrail rejected. A
+    backend that is cheap per call and needs two rounds half the time is not
+    cheap, and a table that only recorded the accepted round would hide exactly
+    that — it would make the worst provider look like the best one at ranking
+    time.
+
+    ``cost_usd`` is nullable and stays NULL when the model is missing from
+    ``llm/pricing.py``. That is a different fact from "it was free", and the
+    difference matters most in the column people sort by.
+
+    Not a column on ``applications``: this is data to GROUP BY, and half of it
+    (tailor rounds for a job that was never applied to) belongs to no
+    application at all.
+    """
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # tailor | letter | classify — a plain String for the same reason
+    # ApplicationEvent.event_type is one: the set grows, ALTER TYPE hurts.
+    task: Mapped[str] = mapped_column(String(16), index=True)
+    provider: Mapped[str] = mapped_column(String(32), index=True)
+    model: Mapped[str] = mapped_column(String(64), index=True)
+
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+
+    #: Which round this was: 1 is the first ask, 2 the corrective one. The
+    #: share of work that lands on round 1 is the guardrail pass rate.
+    round: Mapped[int] = mapped_column(Integer, default=1)
+    #: Whether the task as a whole ended up with an answer the guardrails
+    #: accepted. Repeated on every round of the same task on purpose — it makes
+    #: "what fraction of attempts succeed" a query with no join in it.
+    #: Defaults False for the same reason ``CallLog.accepted`` does: a row whose
+    #: outcome nobody set is not a success nobody got.
+    ok: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    #: Set when the call failed outright (no answer at all, as opposed to an
+    #: answer the guard rejected). Keeps a dead API key from reading as a
+    #: quality problem.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    job_id: Mapped[str | None] = mapped_column(
+        ForeignKey(_JOBS_ID, ondelete="SET NULL"), nullable=True, index=True
+    )
+    application_id: Mapped[int | None] = mapped_column(
+        ForeignKey(_APPLICATIONS_ID, ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

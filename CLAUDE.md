@@ -88,11 +88,15 @@ python -m jobpilot.cli cv seed      # tạo Master CV rỗng nếu chưa có (id
 python -m jobpilot.cli cv import my-cv.local.json   # nạp CV có sẵn vào DB
 python -m jobpilot.cli cv export my-cv.local.json   # backup CV từ DB ra file (gitignored)
 python -m jobpilot.cli cv build     # render JSON → .tex → PDF ở out/cv/master/
-python -m jobpilot.cli tailor <job_id>            # tailor CV cho 1 job (cần ANTHROPIC_API_KEY)
+python -m jobpilot.cli tailor <job_id>            # tailor CV cho 1 job (cần key của provider đang chọn)
 python -m jobpilot.cli tailor <job_id> --no-build # chỉ ra plan, không build PDF
 python -m jobpilot.cli apply <job_id>             # nộp theo kênh (email/portal/external)
 python -m jobpilot.cli apply <job_id> --open-portal   # portal: mở browser pre-fill (không tự submit)
 python -m jobpilot.cli confirm-submit <job_id>    # xác nhận đã tự nộp xong (portal/external)
+python -m jobpilot.cli llm providers # provider nào đang chạy việc gì, có key chưa, terms ra sao
+python -m jobpilot.cli llm stats    # chi phí / tỉ lệ qua guardrail lần đầu / độ trễ, theo backend
+python -m jobpilot.cli llm bench --task classify  # chấm trên 5 email có đáp án (mốc qwen2.5:7b = 5/5)
+python -m jobpilot.cli llm bench --task tailor    # chạy 4 job thật, đếm plan qua guardrail (mốc = 0/4)
 python -m jobpilot.cli slack        # (tùy chọn) Slack Bolt — kênh phụ; cần API đang chạy
 pytest jobpilot/tests               # test
 # tất cả trong 1 lệnh:
@@ -196,7 +200,8 @@ Nếu response có field kiểu `appliedFilters` thì **check nó**, đừng tin
 ## Trạng thái hiện tại
 
 Roadmap `PLAN.md §9` **đã xong** (Phase 0 → 15), và roadmap mở rộng **`PLAN.md §9.1`
-(Phase 18 → 25)** đang chạy — Phase 18–19 xong, tiếp theo là **Phase 20 (analytics thật)**.
+(Phase 18 → 25)** đang chạy — Phase 18–20b xong, tiếp theo là **analytics thật** (ô "20"
+trong bảng §9.1; hai phase model backend dùng nhờ số 20 nên analytics vẫn còn nợ).
 Nhật ký chi tiết từng phase — scope,
 quyết định kỹ thuật, và các bug chỉ lộ ra khi chạy thật — nằm ở **`PHASES.md`**. Đọc
 phần tương ứng trong đó trước khi đụng vào một vùng code lần đầu; mục "Nợ kỹ thuật"
@@ -223,10 +228,20 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 17 | Cover letter ra `.tex` → PDF, đính kèm email; text vẫn là bản chính | `apply/letter_pdf.py`, migration 0006 |
 | 18 | Chuyện gì xảy ra **sau** khi nộp: replied/interview/offer/rejected + lịch sử | `apply/outcome.py`, migration 0007 |
 | 19 | Đọc thư NTD → **đề xuất** outcome, user bấm mới ghi | `apply/inbox.py`, migration 0008 |
-| 20 | Chạy model **trên máy mình** (Ollama) — chọn provider theo từng việc | `llm/ollama.py`, `config.llm` |
+| 20 | Chạy model **trên máy mình** (Ollama) — chọn provider theo từng việc | ~~`llm/ollama.py`~~ (gỡ ở 20b) |
+| 20b | Một tầng provider: claude/openai/gemini, cảnh báo dữ liệu, **đo chi phí + chất lượng** | `llm/`, migration 0009, `llm/stats.py` |
+| 20c | Trang **/models**: chọn model theo việc, dashboard giá + credit đã dùng/còn, scrub key | `web/src/pages/Models.tsx`, `llm/redact.py` |
 
-629 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**,
-8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn qua API + Postgres.
+637 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**
+(0009 up→down→up sạch), 8 trang web, Docker LaTeX build (Master + tailored), crawl 6+ nguồn
+qua API + Postgres, `llm_calls` ghi/đọc qua Postgres thật + `GET /stats/llm` + `llm bench`.
+**Đã gọi thật cả ba provider thành công** (Claude, Gemini; OpenAI qua key trong `.env`) —
+classify 5/5 trên 6 model, tailor **2/2 qua guardrail vòng đầu** trên job thật. Trang `/models`
+đã chụp thật ở cả light/dark, console sạch, đổi model từ UI ghi xuống `config.local.yaml` và
+lệnh CLI chạy đúng backend mới.
+**Cả ba provider đã chạy thật cho cả schema phẳng (`MailVerdict`) lẫn schema lồng (`TailorPlan`)**,
+kể cả OpenAI strict mode. Biến môi trường `OPENAI_API_KEY` cũ đã gỡ; `llm providers` và trang
+`/models` không còn cảnh báo shadow.
 
 **Bài học xuyên suốt** (ca cụ thể ở `PHASES.md`):
 - **Test xanh không chứng minh parser đúng.** Mỗi phase crawl đều có bug chỉ lộ ra khi
@@ -239,31 +254,95 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 - **Đừng để công cụ đo bịa ra finding.** `pypdf` đọc mất dấu cách rồi kết luận CV hỏng —
   PDF chưa bao giờ hỏng, công cụ đo mới hỏng.
 
-### Model backend (Phase 20) — đọc trước khi đổi provider
+### Model backend (Phase 20 → 20b) — đọc trước khi đổi provider
 
-- **Chọn theo từng việc, không phải một công tắc.** `llm.classify` / `llm.tailor` / `llm.letter`
-  (mặc định rơi về `llm.provider` = `claude`). Đo thật trên `qwen2.5:7b`, RTX 3060 6GB:
-  **classify 5/5 nhãn đúng (~2s/thư) → dùng local**; **tailor 0/4 kể cả sau ba vòng vá prompt
-  → giữ Claude**. Tailor hỏng ở chỗ *điều hướng schema* (nhầm `entry_order`↔`item_order`,
-  và nhầm **hoán vị** qua từng vòng vá), **không** phải ở truthfulness.
-- **Vòng guardrail dùng chung, tuyệt đối không fork.** `_GuardedTailor` giữ prompt+check+retry;
-  engine chỉ cấp `_parse`. Có test ghim `OllamaTailorEngine.tailor is ClaudeTailorEngine.tailor` —
-  model yếu **cần** vòng retry đó hơn Claude, nên hai bên phải là cùng một vòng.
-- **Lý do dùng local là riêng tư, không phải tiền.** 1 tailor ≈ $0.057, 100 tailor + 300 email ≈ $7.
-  Nhưng input của tailor là **cả Master CV**, và **free tier** của Gemini cho phép train trên
-  input/output — trái nguyên tắc 3. Local thì CV không rời khỏi máy.
-- **Cần `ollama serve` + `ollama pull <model>`.** `llm.probe()` báo lý do trước khi task được
-  xếp hàng, giống cách `apply.email` báo blocker — không để thành task chết giữa chừng.
+- **Chọn theo từng việc, không phải một công tắc.** `llm.tailor` / `llm.letter` / `llm.classify`
+  (rỗng = rơi về `llm.provider`, mặc định `claude`). Provider hợp lệ nằm ở
+  `llm/registry.PROVIDERS` — thêm một backend = **một entry + một module client**, không sửa
+  `Literal` ở bốn chỗ. Model chọn theo `llm.models[provider]`, ghi đè theo việc bằng
+  `llm.task_models[task]`.
+- **Một engine cho mỗi task, không phải một engine cho mỗi provider.** `ModelTailorEngine` /
+  `ModelLetterEngine` / `ModelClassifier`, mỗi cái cầm một `StructuredClient`. Vòng retry là thứ
+  chặn một plan sai lọt vào PDF, nên nó **không được** có bản sao theo backend — trước 20b thì
+  `letter.py` đã có đúng hai bản gần giống nhau. Giờ bất biến đó do *không còn gì để fork* giữ,
+  không phải do một test giữ.
+- **Ba provider không nhận cùng một JSON Schema.** `llm/schema.py`: `flatten_schema` (Gemini —
+  docs chỉ liệt kê subset, cảnh báo schema lồng sâu có thể bị từ chối), `strictify` (OpenAI
+  strict — mọi object `additionalProperties:false`, **mọi** field trong `required`). Bẫy ở
+  `strictify`: "mọi field required" **không** có nghĩa bỏ field optional — optional được nới
+  thành nullable, nếu không model bị ép **bịa** ra `summary`.
+- **Đo, đừng đoán.** Mọi lượt gọi ghi một row `llm_calls` (**kể cả lượt bị guard từ chối, kể cả
+  lượt gọi hỏng**). Đọc bằng `GET /stats/llm` hoặc `jobpilot llm stats`. `jobpilot llm bench
+  --task classify|tailor` chạy lại đúng phép đo của Phase 20 (5 email có đáp án / 4 job thật).
+  Mốc `qwen2.5:7b` để so: classify **5/5**, tailor **0/4**.
+- **Mẫu nhỏ thì hiện `n=<count>`, không hiện %.** `llm/stats.MIN_SAMPLE`. 3 lượt 2 lỗi không
+  phải "33%", nó là 3 lượt — và tỉ lệ thì mời người ta so sánh hai backend trên 3 lượt.
+- **`cost_usd = NULL` khác `0.00`.** Model không có trong `llm/pricing.PRICES` thì không đoán
+  giá; `unpriced_rounds` đi kèm mọi tổng, để một tổng dựng từ nửa số row không bị đọc như dựng
+  từ tất cả. Bảng giá có `CHECKED_ON` — nó **sẽ** cũ đi.
+- **Chỉ một ô cần cảnh báo: Gemini free tier.** Anthropic / OpenAI / Gemini **trả tiền** đều
+  không train trên input API. Gemini **unpaid** thì có, và điều khoản ghi thẳng *"Do not submit
+  sensitive, confidential, or personal information"* — trong khi `tailor`/`letter` gửi **cả
+  Master CV** (`prompt.py:system_prompt`). Không đọc được tier từ API key, nên có
+  `llm.gemini_paid_tier`. `llm.warnings()` **cảnh báo, không chặn** — quyền là của user.
+- **`llm.blocker(task)` kiểm tra key, không kiểm tra credit.** Key hỏng hay hết tiền chỉ biết
+  bằng cách tiêu một request; giả vờ ngược lại chỉ là cách sai chậm hơn. Nó nằm trong
+  `get_engine()` của route (không nằm trong route body) để test tự cấp engine không bị đòi key —
+  đúng cái bẫy `test_missing_tokens_produce_a_readable_error` đã dính.
+- **Telemetry không bao giờ được làm hỏng việc nó đo.** `usage.record` ghi hai lần: có link
+  job/application, rồi nếu vỡ thì không link. Bản đầu nuốt lỗi im lặng và **mất sạch** row của
+  `llm bench` vì FK — chỉ lộ ra khi chạy thật, đúng thứ mà "nuốt lỗi" che đi.
 - **Prompt phải nói ra thứ schema đã ngầm định.** `section_order` để rỗng = giữ nguyên; outline
   in `type=` nhưng phải giải thích kiểu nào dùng field nào. `retry_prompt` phải nhắc lại **đúng
   luật vừa vỡ** (`_REMEDIES`) — bản cũ khuyên về index/summary trong khi cái vỡ là `section_order`.
+- **Ba luật chốt cho model backend (user đặt, không tự đổi):** (1) **không được leak API key** —
+  đây là rủi ro, không phải chi tiết; (2) **model phải đổi được từ Web** (trang `/models`: chọn
+  provider+model cho từng việc, dashboard giá/chất lượng/độ trễ, credit đã dùng/còn lại);
+  (3) **mặc định dùng model rẻ nhất mà vẫn hiệu quả**, chứng minh bằng `llm bench` chứ không đoán.
+- **Scrub key ở chỗ *tạo ra* lỗi, không phải ở từng nơi lỗi đi tới.** `llm/redact.py` gọi từ
+  `LlmError.__init__` + `CallLog`. Lý do rất cụ thể: key sai thì provider **trích lại key** trong
+  message (`Incorrect API key provided: sk-proj-…`), và chuỗi đó đi thẳng vào `llm_calls.error`,
+  ra CLI, ra API. Thêm `log.warning` nào mang exception của SDK thì cũng phải `redact()`.
+  Có test ghim: field nào **tên** giống secret **và** kiểu string thì không được xuất hiện trong API.
+- **"Credit còn lại" KHÔNG lấy được từ provider.** Anthropic/OpenAI/Google đều đòi **Admin key**
+  cho endpoint chi phí (đã thử, cả ba trả 401). Nên nó là `llm.budget_usd` (tự nhập) trừ đi phần
+  **JobPilot tự đo** — là bộ đếm ngân sách, không phải số dư tài khoản, và UI phải nói đúng thế.
+- **Mặc định hiện tại: `classify` = `openai/gpt-4o-mini`** (10 lượt, 100% đúng, rẻ nhất **và**
+  nhanh nhất). `tailor`/`letter` giữ `claude-opus-4-8`.
+- **Bài học về chính bộ đo này: n=5 đã cho kết luận SAI.** Ở 5 lượt `gemini-3.1-flash-lite` trông
+  nhanh nhất (p50 **705ms**); lên 10 lượt p50 thành **2732ms**, còn `gpt-4o-mini` 1101ms — đảo
+  ngược cả "rẻ nhất" lẫn "nhanh nhất". Đúng là lý do `MIN_SAMPLE` tồn tại, và nó vừa bắt được
+  chính người viết ra nó. **Đừng chốt model khi cột tỉ lệ còn hiện `n=<count>`.**
+- **Mọi model đã thử đều 5/5 trên bộ classify** ⇒ với việc này phân biệt bằng **giá + độ trễ**,
+  không phải độ chính xác: `gpt-4o-mini`, `gpt-4.1-mini`, `gemini-3.1-flash-lite`,
+  `gemini-3.5-flash-lite`, `claude-haiku-4-5`, `gpt-4.1`, `gemini-3.5-flash` (đắt nhất — thinking
+  token tính giá output).
+- **`tailor` đã chạy thật trên hai backend**: `claude-opus-4-8` **2/2** qua guardrail vòng đầu
+  (~$0.10/lượt, ~39s); `gpt-4.1` **1/1** vòng đầu (~$0.016/lượt, ~9s) — rẻ hơn ~6×, nhanh hơn ~4×.
+  **Chưa đổi**: guardrail chỉ bắt *bịa*, không bắt "đúng sự thật nhưng xếp hạng dở", nên tailor
+  phải chấm bằng mắt ở trang CV Review; n=1 chưa phải bằng chứng.
+- **`thinking` không bật cho mọi model được.** Haiku trả 400 *"adaptive thinking is not supported
+  on this model"* ⇒ để nguyên là **chặn luôn cả tầng model rẻ**. Giờ registry tắt thinking cho
+  `classify`, và client tự tắt + gọi lại một lần khi gặp đúng lỗi đó (không hardcode danh sách model).
+- **Provider *liệt kê* model không có nghĩa là dùng được.** `gemini-2.5-flash` nằm trong
+  `models.list()` nhưng `generateContent` trả **404 "no longer available to new users"**. Danh sách
+  chỉ là *menu*, `llm bench` mới là bằng chứng. Và khi so id thì phải **so theo prefix**:
+  Anthropic liệt kê `claude-haiku-4-5-20251001` còn alias mình gọi là `claude-haiku-4-5` — so khớp
+  chính xác từng đánh dấu nhầm model đang chạy tốt là "không khả dụng".
+- **Ollama đã gỡ (20b).** Đánh đổi có ý thức: `classify` từng chạy local 5/5 và thư nhà tuyển
+  dụng **không rời khỏi máy**; giờ nó đi qua API. Cái *vẫn* đúng: thư không khớp đơn nào vẫn
+  dừng trong máy. Muốn quay lại local thì Ollama có endpoint OpenAI-compatible
+  (`localhost:11434/v1`) map `response_format` vào cùng grammar — tức **một entry trong
+  `PROVIDERS` với `base_url` khác**, không phải viết lại module.
 
 ### Inbox sync (Phase 19) — đọc trước khi đụng vào `apply/inbox.py`
 
 - **Thứ tự fetch → ghép cục bộ → LLM là thiết kế riêng tư, không phải tối ưu.** Thư không
-  thuộc đơn nào **dừng lại ngay trong máy**; chỉ thư đã khớp mới tới Claude. Đừng đảo thứ
+  thuộc đơn nào **dừng lại ngay trong máy**; chỉ thư đã khớp mới tới model. Đừng đảo thứ
   tự, đừng "gửi hết cho model cho gọn" — có test ghim
-  (`test_unmatched_mail_is_never_handed_to_the_classifier`).
+  (`test_unmatched_mail_is_never_handed_to_the_classifier`). Từ Phase 20b, thư **đã khớp**
+  luôn đi qua API của provider (không còn đường local), nên bước ghép cục bộ **là** phần bảo
+  vệ, và nó phải đứng trước.
 - **`quote` phải xuất hiện thật trong thư**, nếu không verdict bị loại và lưu status
   `unusable`. **Vẫn phải lưu** dù bị loại: không lưu thì lần sync sau thư đó lại "mới" và
   lại gọi Claude — trả tiền vô hạn cho một câu trả lời không bao giờ hiển thị.
@@ -324,8 +403,13 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
   trong Postgres và dashboard thấy ngay — `PLAN.md §10` đã được quan sát, không còn là giả định.
   Lỗi hay gặp: channel **riêng tư** mà bot chưa được mời trả `channel_not_found`, không phải
   `not_in_channel` — hai lỗi đó phân biệt public/private.
-- **Chưa verify được**: gọi Claude thật — key hợp lệ nhưng **tài khoản hết credit**, nên mọi lệnh
-  tailor/letter/classify qua Claude trả 400 `credit balance is too low`.
+- **Chưa verify được: một lượt gọi model *thành công*.** Anthropic: key hợp lệ nhưng **hết
+  credit** (400 `credit balance is too low`). OpenAI: `OPENAI_API_KEY` trong `.env` bị từ chối
+  **401**. Gemini: chưa có `GOOGLE_API_KEY`. Nghĩa là **shape request của OpenAI/Gemini chưa
+  đối chiếu với API thật** — 401 xảy ra *trước* khi request được validate. Đường lỗi thì đã
+  chạy thật đầu-cuối (bench → `llm_calls` trong Postgres → `/stats/llm`). Có key rồi thì việc
+  đầu tiên là `jobpilot llm bench --task classify`, và **rủi ro cao nhất là Gemini có nuốt nổi
+  `TailorPlan` không** — docs chỉ hỗ trợ subset JSON Schema.
 - **Đã verify trên môi trường thật**: `alembic upgrade head` chạy sạch 3 migration lên **PostgreSQL 17 local** (schema `jobpilot`, GIN index, enum `job_status` đầy đủ); toàn bộ 8 trang web chạy trên Postgres thật, không lỗi console; Compile PDF từ CV Studio và tailor→PDF đều qua Docker LaTeX thật.
 - **Lưu ý khi chụp/screenshot UI**: headless Chrome **không có PDF viewer**, nên khung preview PDF sẽ trống (`net::ERR_ABORTED` trên blob URL). Đó là giới hạn của headless chứ không phải bug — chạy `headless=False` để kiểm tra thật.
 - **Gmail OAuth** chưa làm — dùng `method: smtp` (Gmail app password chạy được).
@@ -336,4 +420,5 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 - Nguồn = **ITviec + TopCV + VietnamWorks** lõi (pluggable, mở rộng theo tier — PLAN.md §5.1.1); không LinkedIn/Facebook.
 - Giao diện = **Web Dashboard local** là chính, **Slack** phụ. DB = **PostgreSQL**.
 - Chạy = **local**, tay hoặc cron nhẹ.
-- Stack = Python (FastAPI + Playwright stealth + Claude API + Docker LaTeX) + React(Vite/TS/Tailwind/shadcn) + PostgreSQL + slack-bolt.
+- Stack = Python (FastAPI + Playwright stealth + Docker LaTeX) + React(Vite/TS/Tailwind/shadcn) + PostgreSQL + slack-bolt.
+- LLM = **Claude mặc định**, openai/gemini chọn được **theo từng việc** (`llm.*`, Phase 20b). Không chạy model local.

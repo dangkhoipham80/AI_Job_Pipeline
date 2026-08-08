@@ -242,7 +242,7 @@ Rà soát nhanh `resume/*.tex` — các cải thiện đề xuất (làm ở Pha
 | Charts | Recharts (theo skill `dataviz`) | Funnel, biểu đồ nguồn/ngày, KPI — palette nhất quán light/dark. |
 | Store | **PostgreSQL** (JSONB) + Alembic | Quan hệ cho funnel/filter + JSONB cho JD; migrations. |
 | Slack | slack-bolt (Socket Mode) | Kênh **phụ**: thông báo + thao tác nhanh. Không cần public URL. |
-| LLM | **Claude API** (claude-opus-4-8 / sonnet) | Tailor CV + cover letter + gap analysis. |
+| LLM | **Claude API** mặc định; openai / gemini chọn được theo từng việc (Phase 20b) | Tailor CV + cover letter + đọc thư NTD. |
 | CV build | Docker `csmith/awesome-cv-builder` | Đã có sẵn, tái dùng. |
 | Email | Gmail API hoặc SMTP | Kênh apply full-auto. |
 | Config | `.env` + `config.yaml` | Secrets tách khỏi code. |
@@ -253,7 +253,7 @@ Rà soát nhanh `resume/*.tex` — các cải thiện đề xuất (làm ở Pha
 ## 8. Cấu trúc thư mục (đề xuất)
 
 ```
-CV_Template/
+JobPilot/
 ├── PLAN.md  SKILL.md  CLAUDE.md          # docs (file này)
 ├── cv.tex  awesome-cv.cls  fonts/  resume/  # Master CV (giữ nguyên)
 ├── docker-compose.yml  Makefile  pyproject.toml  .env.example  .gitignore
@@ -327,33 +327,35 @@ theo độ hấp dẫn: phase sau cần dữ liệu do phase trước sinh ra.
 | **24** | **Interview prep + STAR story bank** — bộ chuẩn bị theo từng job, STAR map từ kinh nghiệm **thật** (guardrail như tailor), tích luỹ thành story bank dùng lại. | Ghi event `interview` là có nút sinh bộ chuẩn bị; mọi câu chuyện đều truy được về một mục có thật trong Master CV. |
 | **25** | **Upskill** — gom gap của mọi job đã tailor: yêu cầu nào lặp lại mà mình thiếu → xếp hạng theo tần suất × mức độ gần. | Một danh sách ngắn "học cái này trước" dựa hoàn toàn trên job thật đã gặp, không phải lời khuyên chung chung. |
 
-### Quyết định đang mở — backend cho tailor (để session sau)
+### Quyết định đã chốt — backend cho tailor (Phase 20b)
 
-Phase 20 đo được ranh giới rất rõ và **không** đóng nó lại trong PR đó:
+Phase 20 để ngỏ bốn hướng cho tailor local (model to hơn / đơn giản hoá schema / tách hai
+lượt gọi / chấp nhận hybrid). **Cả bốn đóng lại cùng lúc**, vì câu trả lời không nằm trong
+danh sách đó mà nằm ở một dòng khác trong nợ kỹ thuật: *tài khoản Anthropic hết credit*.
+Cộng với `tailor` local 0/4 ⇒ **không có backend nào chạy được**. Vấn đề cần giải không phải
+"local có đủ giỏi không" mà "làm sao có hơn một đường ra".
 
-| | Kết quả đo | Trạng thái |
-|---|---|---|
-| `classify` trên `qwen2.5:7b` | 5/5 nhãn đúng, ~2s/thư | ✅ đã bật local |
-| `tailor` trên `qwen2.5:7b` | 0/4 sau ba vòng vá prompt | ⏸ giữ Claude, **chưa quyết** |
+Chốt: **gỡ Ollama, xây một tầng provider** (`llm/registry.PROVIDERS`) với **claude / openai /
+gemini**, mặc định `claude`, chọn **theo từng việc**. Kèm theo:
 
-Tailor hỏng ở **điều hướng schema** (nhầm `entry_order`↔`item_order`, và mỗi vòng vá lại
-*hoán vị* chỗ nhầm), **không** phải ở truthfulness — guardrail chống bịa chưa hề bị chạm.
-Nghĩa là bài toán vẫn nằm trong tầm, chỉ là 7B không giữ nổi ánh xạ.
+- **Không chặn tier nào, nhưng cảnh báo rõ.** Chỉ Gemini free tier train trên input; Anthropic,
+  OpenAI và Gemini trả tiền thì không. `llm.gemini_paid_tier` + `llm.warnings()`.
+- **Đo, đừng đoán.** Bảng `llm_calls` ghi mọi round; `GET /stats/llm`, `jobpilot llm stats`,
+  `jobpilot llm bench` biến phép đo thủ công của Phase 20 thành một lệnh. Mốc để so vẫn là
+  `qwen2.5:7b`: classify **5/5**, tailor **0/4**.
 
-Bốn hướng, chưa chọn:
+Cái đánh đổi, ghi thẳng: `classify` từng chạy local và thư nhà tuyển dụng **không rời khỏi
+máy**; giờ nó đi qua API. Phần vẫn đúng: thư không khớp đơn nào vẫn dừng trong máy.
 
-1. **Model to hơn** — `qwen2.5:14b` (đã pull sẵn, ~9 GB; tràn sang RAM, chậm hơn). Rẻ nhất để
-   thử: đổi một dòng `tailor_model` rồi đo lại. Nếu pass thì kết luận là "7B không đủ",
-   không phải "local không đủ".
-2. **Đơn giản hoá schema cho model yếu** — gộp `entry_order`/`item_order` thành một field
-   `order` duy nhất, để guard suy ra kiểu từ section. **Đụng vào contract của Claude**, nên
-   phải cân nhắc kỹ: đổi schema là đổi thứ đã verify.
-3. **Tách hai lượt gọi** — lượt 1 phân tích requirement (dễ), lượt 2 chỉ xếp thứ tự (dễ), thay
-   vì bắt một lượt trả về cả plan. Đúng khuyến nghị "reason trước, extract sau" cho model nhỏ.
-4. **Chấp nhận hybrid** — classify local, tailor + letter trả tiền. Đang là trạng thái hiện tại.
+**Ba luật vận hành (Phase 20c, user chốt):** (1) **không leak API key** — scrub ở chỗ tạo ra lỗi,
+có test ghim; (2) **đổi model từ Web** — trang `/models` chọn provider+model theo từng việc, kèm
+dashboard giá / chất lượng / độ trễ và credit đã dùng-còn lại; (3) **mặc định model rẻ nhất mà vẫn
+hiệu quả**, chứng minh bằng `llm bench`. Lưu ý: "credit còn lại" **không** đọc được từ provider
+(endpoint chi phí đòi Admin key) — nó là ngân sách tự nhập trừ phần JobPilot tự đo.
 
-Đo trước khi chọn: chạy 4 job có sẵn trong DB và đọc tỉ lệ pass guardrail, đúng cách Phase 20
-đã làm — con số đó quyết định, không phải cảm tính.
+Nếu có ngày muốn thử lại local, Ollama có endpoint OpenAI-compatible
+(`localhost:11434/v1`) map `response_format` vào cùng grammar của `/api/chat` — tức **một
+entry trong `PROVIDERS` với `base_url` khác**, không phải viết lại một module.
 
 **Quyết định kiến trúc chốt trước, áp cho cả cụm 18–20:** outcome sống ở tầng
 `Application`, **không** thêm giá trị vào enum `job_status`. `JobStatus` mô tả vòng đời

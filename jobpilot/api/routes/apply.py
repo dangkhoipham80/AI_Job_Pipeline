@@ -38,8 +38,9 @@ from jobpilot.apply.outcome import (
     record_outcome,
     retract_outcome_event,
 )
+from jobpilot import llm
 from jobpilot.apply.letter import LetterEngine, default_letter_engine
-from jobpilot.config import get_config, get_secrets
+from jobpilot.config import get_config
 from jobpilot.orchestrator import TaskBusy, apply_body, queue
 from jobpilot.store.models import Application, Job
 
@@ -48,9 +49,11 @@ board = APIRouter(prefix="/applications", tags=["apply"], dependencies=[Depends(
 
 
 def get_letter_engine() -> LetterEngine | None:
-    """None when no Claude key is configured — apply still works, just without a
-    cover letter, which beats blocking a portal handoff on an unrelated key."""
-    return default_letter_engine() if get_secrets().anthropic_api_key else None
+    """None when the configured letter provider has no key — apply still works,
+    just without a cover letter, which beats blocking a portal handoff on an
+    unrelated key. Asks ``llm.blocker`` rather than a specific provider's secret,
+    so switching backend does not silently switch the letter off."""
+    return None if llm.blocker("letter") else default_letter_engine()
 
 
 @router.post("/{job_id:path}/apply", response_model=TaskOut, status_code=202)
