@@ -453,3 +453,60 @@ nằm ở `CLAUDE.md` mục "Nợ kỹ thuật" và "Thêm một site crawl mớ
   ITviec → `None`, lương thật → số đúng, city gộp đúng); `/market` chụp thật **light + dark**,
   console sạch. `--force` tồn tại vì một bản vá *parser* phải chạy lại được trên chính những row
   mà nó từng trả lời sai — không có nó thì bug bị đóng băng vào dữ liệu nó làm hỏng.
+
+---
+
+## CV Studio — preview đọc được, và LaTeX sửa được (theo yêu cầu, không phải phase đánh số)
+
+**Ba lời phàn nàn về khung preview, sửa theo đúng thứ tự nó làm phiền.**
+
+- **Mảng đen dưới trang.** Khung ghim `h-[780px]`, mà trang A4 fit theo bề rộng rail 378px chỉ
+  cao ~535px ⇒ 245px còn lại là **nền của chính PDF viewer**. Không lấy tỉ lệ A4 trần được: đo
+  thật thì viewer chèn ~4px mỗi bên, ~3px trên, và fit trang vào phần *bên trong* padding đó —
+  dùng 210/297 thẳng là luôn **ước lượng thừa**. Nay ước lượng **hụt 2px có chủ ý** rồi clip
+  phần dư: sai thì mất 2px của lề 1.5cm, không phải hiện một vệt đen.
+- **Không đọc nổi.** Rail 378px, CV là một tài liệu. Thêm chế độ toàn màn hình + link mở tab mới.
+  Overlay **portal ra `<body>`**: để nguyên tại chỗ thì nó nằm trong subtree `sticky` của rail,
+  và header dính của app vẽ đè lên — nút Close **bấm không được**. Không nhìn ảnh nào ra;
+  Playwright báo thẳng `<header …> intercepts pointer events`. Đây là lý do drive UI thật khác
+  với chụp ảnh UI.
+- **Trống trơn tới khi bấm Compile**, dù PDF đã nằm sẵn trên đĩa. Giờ fetch ngay lúc mount.
+
+**Một bug tự lộ ra khi đang sửa:** object URL bị `revokeObjectURL` trong **cleanup** của effect —
+tức đúng lúc compile *bắt đầu*. Suốt ~10–30s Docker build, khung trỏ vào blob đã huỷ. Giờ chỉ
+revoke bản cũ **sau khi** bản mới về. Bài học cũ dạng mới: dọn dẹp theo vòng đời của *effect*
+trong khi thứ được dọn có vòng đời của *màn hình*.
+
+**Raw LaTeX (user chọn phương án "lưu override vào version").**
+
+- JSON **vẫn** là nguồn sự thật cho CV *nói gì*; override chỉ đè lên cách nó *serialize* — đúng
+  những thứ editor không có field: `\vspace` kéo dòng mồ côi về trang 1, macro Awesome-CV mà
+  schema không mô hình hoá. Lưu ở `cv_versions.meta.tex_override` ⇒ **không cần migration**, và
+  mỗi version ghi lại đúng thứ đã build.
+- **Đánh đổi một chiều, và UI phải nói ra**: không có gì parse `.tex` ngược về JSON, nên khi
+  override còn hiệu lực thì các field **không tới được PDF**. Banner trong tab + dòng dưới tiêu đề
+  trang + một cú bấm để revert. Override ghi **đè lên** project đã render, nên sửa `cv.tex` thì
+  các file section vẫn bám theo JSON.
+- **Hai thứ cố tình KHÔNG làm**: (1) lưu document **không** xoá override — mất `.tex` viết tay chỉ
+  vì sửa số điện thoại là không thể bào chữa; xoá có động từ riêng (`DELETE`), và `PUT` với
+  `files: {}` trả **422** chứ không lặng lẽ thành delete. (2) **rollback mang override về theo**,
+  vì "khôi phục v7" phải nghĩa là *bản PDF mà v7 đã tạo ra* — lấy document mà bỏ `.tex` nó compile
+  từ đó là khôi phục một version chưa từng tồn tại.
+- Path trong override được validate **trước khi** thành path dưới `out/cv/<scope>/`: tương đối,
+  không traversal, không backslash, chỉ `.tex`. Backslash phải chặn riêng: `PurePosixPath` đọc
+  `a\b.tex` là **một** segment vô hại, còn Windows thì không.
+- Editor là gutter + textarea có bắt phím Tab, **không** Monaco — ~5 MB dependency để tô màu cú
+  pháp cho một file hiếm khi mở.
+
+**Verify:** 677 test; `tsc` sạch; chạy thật đầu-cuối trên browser headed + API + Postgres + Docker
+LaTeX: sửa `resume/summary.tex` chèn marker → Save → Compile → **đọc lại PDF bằng pypdf thấy
+marker** → Revert → Compile → marker biến mất. Cửa sổ read-only lúc save verify bằng cách **giữ
+request mở** (route delay), không phải bằng cách đua với nó. Ảnh light + dark.
+
+**Reviewer bắt 4 lỗi, sửa hết trước khi push**: textarea vẫn gõ được trong lúc save (refetch sau đó
+ghi đè thứ vừa gõ), `PUT {"files": {}}` ngầm thành `DELETE`, `onClose` inline dựng lại effect phím
+Esc mỗi lần parent render, và rollback làm rơi override.
+
+**Ghi chú môi trường:** headless Chrome không có PDF viewer ⇒ mọi kiểm tra preview phải chạy
+`headless=False`. Lỗi console duy nhất còn lại là `chrome-extension://…/pdf_embedder.css` — asset
+của chính PDF viewer trong Chrome, không phải của app.
