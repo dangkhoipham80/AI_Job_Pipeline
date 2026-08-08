@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Check, Loader2, PenSquare } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Button, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { Markdown } from "@/components/Markdown";
 import { titleCase } from "@/lib/format";
 import type { JobDetail } from "@/types";
 
@@ -82,7 +83,14 @@ export function JobDescription({ job, onSaved }: { job: JobDetail; onSaved: () =
               className="w-full resize-y rounded-lg border bg-surface px-3 py-2 font-sans text-sm leading-relaxed text-ink placeholder:text-ink-muted/70 focus:border-accent focus:outline-none"
             />
             <div className="flex items-center justify-end gap-2">
-              {error && <span className="mr-auto text-xs text-critical">{error}</span>}
+              {error ? (
+                <span className="mr-auto text-xs text-critical">{error}</span>
+              ) : (
+                <span className="mr-auto text-xs text-ink-muted">
+                  Markdown: <code className="font-mono">##</code> heading,{" "}
+                  <code className="font-mono">-</code> bullet, <code className="font-mono">**bold**</code>
+                </span>
+              )}
               {!empty && (
                 <Button
                   size="sm"
@@ -101,9 +109,7 @@ export function JobDescription({ job, onSaved }: { job: JobDetail; onSaved: () =
             </div>
           </div>
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink/90">
-            {job.description_md}
-          </pre>
+          <Markdown source={job.description_md} />
         )}
       </CardBody>
     </Card>

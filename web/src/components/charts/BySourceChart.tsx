@@ -30,7 +30,9 @@ export function BySourceChart({ data }: { data: Record<string, number> }) {
           dataKey="source"
           axisLine={false}
           tickLine={false}
-          width={92}
+          // Fits the longest source label ("Weworkremotely"); at 92 it lost its
+          // first letter, which reads as a typo rather than as clipping.
+          width={110}
           tick={{ fill: axisColor(), fontSize: 12 }}
           tickFormatter={titleCase}
         />

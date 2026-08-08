@@ -82,7 +82,11 @@ export function Layout({ live, children }: { live: boolean; children: ReactNode 
           </button>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">{children}</main>
+        {/* Full-bleed on purpose: this is a local single-user control plane on a
+            desktop monitor, and a centered `max-w-6xl` column left ~600px of dead
+            gutter on a 1920 screen while the job table truncated its own titles.
+            Long-form prose keeps its own reading measure (see Markdown). */}
+        <main className="w-full flex-1 px-6 py-6 2xl:px-8">{children}</main>
       </div>
     </div>
   );
