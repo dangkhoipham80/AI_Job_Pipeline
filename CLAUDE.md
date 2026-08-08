@@ -359,11 +359,28 @@ kể cả OpenAI strict mode. Biến môi trường `OPENAI_API_KEY` cũ đã g�
 - **Lương: không đoán.** Không có ký hiệu tiền tệ ⇒ `None` ("20 - 60" là triệu VND hay USD/giờ
   tuỳ board). "Up to 3000" ⇒ `min=None`, **không** bịa 0. Quy đổi sang USD/tháng dùng
   `salary.USD_VND_RATE` có `FX_CHECKED_ON` — là **ước tính**, UI phải nói thế.
-- **Màu: một measure thì một màu.** Tô 8 màu xuống 15 dòng là tô theo *thứ hạng* — đổi filter là
-  đổi màu. Chỉ facet mà mỗi dòng là một *thực thể* (source) mới truyền hàm màu. Và
-  `SOURCE_ORDER` phải **đúng bằng số hue**: dài hơn thì wrap, `lever` đội màu của `itviec`.
+- **Màu theo *việc* nó làm** (skill `dataviz`, đọc trước khi thêm chart). Mọi chart đếm job dùng
+  chung hằng `MEASURE` trong `Market.tsx` — một measure một màu; tô 8 hue xuống 15 dòng là tô
+  theo *thứ hạng*. Nominal (skill, city) một hue; ordinal (seniority) `ordinalRamp(n)` — ramp
+  **đổi bước theo n**, ép 6 bước vào dải light thì hai bước giữa thành cùng một xanh; histogram
+  **không** ramp (trục x đã mang thứ tự); quality dùng `STATUS` + icon + chữ, `undated` để **xám**
+  vì không biết ≠ hỏng. Palette mới thì **chạy `validate_palette.js`** với surface của app
+  (`#ffffff` / `#1a1a19`), đừng ước lượng bằng mắt. `SOURCE_ORDER` phải **đúng bằng số hue**.
+- **Donut nguồn xếp lát theo slot palette, không theo số lượng.** Bộ 8 hue chỉ validate cho cặp
+  **kề nhau trong thứ tự slot**. Xếp theo count đo được **xám cạnh magenta ΔE 2.1 (deutan)** ở
+  dark; xếp theo slot thì cặp tệ nhất **ΔE 41**. Xếp hạng nằm ở legend, đọc bằng số. Nhích một
+  hue **không cứu được** (trần all-pairs của bộ dark = ΔE 4.7).
 - **`posting_calendar` dùng `posted_at`**, khác biểu đồ `by_day` của Deck (dùng `crawled_at` —
-  đo thói quen chạy crawler của mình, không đo thị trường).
+  đo thói quen chạy crawler của mình, không đo thị trường). Nó phát ra **cửa sổ lịch 30 ngày
+  thật, zero-fill**, và đếm + khai số bài rơi ngoài cửa sổ. Bản đầu chỉ phát ra *ngày có bài*
+  nên hai điểm liền kề cách nhau khi 1 ngày khi 18 tháng — một trục thời gian không có thời gian.
+- **Token màu đưa vào SVG phải là màu.** `--ink-muted` lưu RGB channels cho Tailwind; nhét thẳng
+  vào `fill` là thuộc tính không hợp lệ, **bị bỏ qua im lặng** → nhãn trục về gần đen: light mode
+  vẫn đọc được nên không ai thấy, dark mode mất sạch. Dùng `axisColor()` / `gridColor()` /
+  `surfaceColor()` ở `ChartFrame.tsx`, đừng đọc CSS var trực tiếp.
+- **Chart đọc `isDark()` lúc render.** Chụp dark mode phải set `localStorage` **trước khi app
+  boot** (`add_init_script`); bật class `.dark` sau khi mount chỉ repaint CSS — chart giữ palette
+  light, ảnh *trông* tối mà verify sai.
 
 ### Inbox sync (Phase 19) — đọc trước khi đụng vào `apply/inbox.py`
 

@@ -510,3 +510,79 @@ Esc mỗi lần parent render, và rollback làm rơi override.
 **Ghi chú môi trường:** headless Chrome không có PDF viewer ⇒ mọi kiểm tra preview phải chạy
 `headless=False`. Lỗi console duy nhất còn lại là `chrome-extension://…/pdf_embedder.css` — asset
 của chính PDF viewer trong Chrome, không phải của app.
+
+---
+
+## /market — biểu đồ đọc được, và một trục thời gian không có thời gian (theo yêu cầu)
+
+Phàn nàn của user, đúng chữ: *"market#source và market#calendar đang giống nhau?? và màu các
+biểu đồ xấu, ko có biểu đồ tròn, nhìn ko chuyên nghiệp."* Cả ba đều đúng, và đào xuống thì
+dưới hai cái đầu là bug thật chứ không phải chuyện thẩm mỹ.
+
+**"Giống nhau" là thật, và lý do nó xảy ra đáng ghi lại.** Hai card cuối trang cùng là bar
+chart, và cùng **một màu xanh lá `#008300`**: `sourceColor("linkedin")` rơi vào slot 3 vì
+LinkedIn đứng thứ tư trong `SOURCE_ORDER`, còn calendar thì hardcode `categorical()[3]`. Không
+ai chọn cho chúng trùng nhau — một bên đánh số theo *thực thể*, một bên theo *chỉ số palette*,
+và hai hệ đánh số đó va vào nhau ở đúng một chỗ. Chọn màu bằng index trần là còn để ngỏ khả
+năng này ở mọi biểu đồ khác. Giờ mọi chart đo *số lượng job* dùng chung một hằng `MEASURE`, và
+hue chỉ được dùng ở nơi hue mang thông tin.
+
+**`axisColor()` trả về một chuỗi không phải màu — và light mode che mất chuyện đó.**
+`--ink-muted` lưu **RGB channels** (`"157 155 144"`) để Tailwind ghép `rgb(var(--x) / <alpha>)`.
+`ChartFrame.axisColor()` đọc thẳng chuỗi đó rồi đưa vào `fill` của SVG ⇒ thuộc tính **không
+hợp lệ, bị bỏ qua im lặng**, chữ rơi về mặc định gần đen. Trên nền sáng nó trông như một màu
+xám hơi đậm và không ai để ý; trên nền tối **mọi nhãn trục biến mất**. Chính `index.css` đã ghi
+chú "--grid / --viz-surface stay hex: charts read them back" — biết luật, nhưng `--ink-muted`
+thì lọt. Cùng họ với `+2` và `Hiring`: thứ nguy hiểm là cái *báo cáo thành công*.
+
+**Ảnh chụp dark mode đã sai suốt nhiều vòng, và script chụp mới là thứ hỏng.** Script bật
+`.dark` bằng JS **sau khi** React mount. CSS repaint ngay nên ảnh *trông* tối, nhưng chart đọc
+`isDark()` trong lúc render ⇒ vẫn giữ nguyên palette light. Nghĩa là mấy lượt "verify dark mode"
+đầu tiên không verify gì cả. Phải set `localStorage` trong `add_init_script` **trước khi** app
+boot (index.html đã đọc key đó sẵn). Đúng bài học "đừng để công cụ đo bịa ra finding", lần này
+là công cụ đo *giấu* finding.
+
+**Trục thời gian không có thời gian.** `posting_calendar` phát ra *các ngày có bài đăng* rồi lấy
+30 phần tử cuối. Trên corpus thật: `2024-02-21`, `2024-03-12`, `2025-02-25`, `2025-08-07`, rồi
+`2026-07-07`… — bốn cái lẻ chiếm bốn ô cạnh nhau, nên **khoảng cách giữa hai điểm liền kề khi
+là một ngày, khi là mười tám tháng**. Biểu đồ tự co giãn trục của chính nó mà không nói, và ba
+tuần tuyển dụng thật bị nén vào một phần ba bên phải. Nay là **cửa sổ lịch 30 ngày thật,
+zero-fill**, và số bài rơi ngoài cửa sổ được **đếm và khai ra** (`covered` phải tiếp tục nghĩa
+là "job biểu đồ này thực sự vẽ" — đó là con số cả trang đứng trên). Ba test ghim.
+
+**Biểu đồ tròn: có, nhưng thứ tự lát cắt là do đo mà ra, không phải do thẩm mỹ.** Palette 8 hue
+chỉ được validate cho các cặp **kề nhau trong thứ tự slot cố định** — đó là cơ chế an toàn CVD,
+không phải trang trí. Donut xếp theo *số lượng* thì hai nguồn nào tình cờ đứng cạnh nhau sẽ
+chạm nhau: đo trên corpus này ra **xám cạnh magenta, ΔE 2.1 (deutan)** ở dark mode, tức một
+đường biên vô hình. Xếp vòng theo **slot palette** thì cặp tệ nhất là **ΔE 41**. Nên vòng xếp
+theo slot, còn *xếp hạng* — thứ người ta thực sự muốn — nằm ở legend, đọc bằng số. Cũng đã thử
+sửa bằng cách nhích một hue: **không cứu được**, trần all-pairs của bộ dark chỉ tới ΔE 4.7 (cặp
+bị chặn chuyển sang aqua↔magenta, chẳng liên quan gì tới hue vừa sửa). Tối đa 6 lát, đuôi gộp
+vào "Other" màu xám — và hàng legend của các nguồn bị gộp **cũng** màu xám, vì xám là lát cắt
+chúng đang nằm trong; cho chúng hue riêng là chỉ vào một lát không có trên vòng.
+
+**Màu theo *việc* nó làm, không theo card:** nominal (skill, city) một hue; ordinal (seniority)
+ramp một hue đã chạy `validateOrdinal` — và ramp phải **đổi bước theo n**, ép 6 bước vào dải
+light thì hai bước giữa thành cùng một xanh (n=6 light: không có bộ nào hợp lệ); histogram đã
+có trục mang thứ tự nên **không** ramp (ramp = mã hoá vị trí x lần thứ hai bằng hue); quality là
+**trạng thái** nên dùng status scale, kèm icon + chữ như scale đó bắt buộc — `undated` để **xám
+trung tính**, vì không có ngày là *không biết*, không phải *hỏng*.
+
+**Lặt vặt nhưng là phần "trông không chuyên nghiệp":** nhãn thô (`no_jd`, `ci/cd`,
+`weworkremotely`) rò tên cột ra trục ⇒ `web/src/lib/labels.ts` dịch ở rìa, fallback title-case
+để flag mới vẫn đọc được ngày nó xuất hiện; `$1574.8` khoe độ chính xác mà một con số quy đổi
+từ tỉ giá có ngày kiểm tra không hề có ⇒ `$1,575`; card "Pay distribution" với **1/83** job là
+đúng cái "one-bar bar chart" nên là một con số ⇒ dưới `MIN_SAMPLE` thì hiện số, không hiện lưới
+trống; `type="monotone"` vẽ đỉnh vào những ngày không ai đăng ⇒ `linear`.
+
+**Verify:** 681 test; `tsc` sạch; `/market` chụp thật light + dark **có set theme trước khi
+boot**, console sạch; `GET /analytics/market` đọc từ Postgres thật (30 row lịch, `covered` 66/83,
+note khai 6 bài ngoài cửa sổ). Palette chạy qua `validate_palette.js` của skill `dataviz` cho
+đúng surface của app (`#ffffff` / `#1a1a19`), không ước lượng bằng mắt.
+
+**Bẫy môi trường mất 20 phút:** sửa backend xong `--reload` không ăn. Không phải reloader —
+lần restart trước để lại một **worker mồ côi** vẫn giữ cổng 8000 (Windows cho hai process bind
+cùng cổng), nên request rơi vào bản cũ. `Get-CimInstance Win32_Process` thấy cả `--multiprocessing-fork`
+mồ côi lẫn reloader mới. Curl API trả kết quả cũ trong khi `python -c` cùng module trả kết quả
+mới ⇒ nghi ngay có hai process, đừng nghi cache.
+

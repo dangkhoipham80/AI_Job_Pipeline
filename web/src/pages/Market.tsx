@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle } from "lucide-react";
 import {
+  AlertTriangle,
+  CalendarOff,
+  CheckCircle2,
+  Clock,
+  FileQuestion,
+  FileWarning,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -15,9 +25,29 @@ import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { Card, CardBody, CardHeader, CardTitle, Skeleton } from "@/components/ui";
 import { TooltipBox, axisColor, gridColor } from "@/components/charts/ChartFrame";
-import { categorical, sourceColor } from "@/components/charts/palette";
+import { SourceDonut } from "@/components/charts/SourceDonut";
+import { MUTED, STATUS, categorical, ordinalRamp } from "@/components/charts/palette";
+import { levelLabel, qualityLabel, skillLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { Facet, FacetRow } from "@/types";
+
+/** The one hue every magnitude chart on this page uses. Skills, cities and the
+ *  two histograms all answer "how many jobs", so they are one measure and wear
+ *  one colour; the page reads as a system instead of a sampler. Identity only
+ *  gets its own hues where identity is the point — the source ring. */
+const MEASURE = () => categorical()[0];
+
+/** Posting quality is *state*, not identity, so it wears the reserved status
+ *  scale — and, as that scale requires, never colour alone: each row carries an
+ *  icon and a spelled-out label. `undated` is deliberately the neutral grey:
+ *  a posting with no date is one we don't know about, not one that's gone off. */
+const QUALITY_TONE: Record<string, { color: string; icon: LucideIcon }> = {
+  clean: { color: STATUS.good, icon: CheckCircle2 },
+  stale: { color: STATUS.warning, icon: Clock },
+  thin_jd: { color: STATUS.serious, icon: FileWarning },
+  no_jd: { color: STATUS.critical, icon: FileQuestion },
+  undated: { color: MUTED, icon: CalendarOff },
+};
 
 const SECTIONS = [
   { id: "overview", label: "Overview" },
@@ -63,24 +93,38 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Horizontal bars, directly labelled — the right form when the labels are
- *  long words and the measure is a simple count. */
-function FacetBars({ facet, color }: { facet: Facet; color?: (key: string) => string }) {
-  const rows = facet.rows.filter((r) => r.key !== "_summary");
+/**
+ * Horizontal bars, directly labelled — the right form when the labels are long
+ * words and the measure is a simple count.
+ *
+ * `color` is per *row*, and passing it is a claim: that the rows are an ordered
+ * scale (seniority) or a set of states (quality flags), where hue carries
+ * something the bar length doesn't. Left off — the default — every bar is the
+ * one measure colour. Cycling hues down a nominal ranking would colour by
+ * *rank*, spending the identity channel to re-say what the bars already show
+ * and repainting itself the moment the order changes.
+ */
+function FacetBars({
+  facet,
+  label = (k: string) => k,
+  color,
+}: {
+  facet: Facet;
+  label?: (key: string) => string;
+  color?: (key: string, index: number, total: number) => string;
+}) {
+  const source = facet.rows.filter((r) => r.key !== "_summary");
+  const rows = source.map((r) => ({ ...r, label: label(r.key) }));
   if (!rows.length) return <Empty>Nothing to show yet.</Empty>;
-  // One measure, one colour. Cycling the categorical palette down the rows
-  // would colour by *rank*, which encodes nothing and reads as if it did — the
-  // hue would change the moment a filter reorders the bars. Only a facet whose
-  // rows are genuinely distinct entities (sources) passes a colour function.
-  const single = categorical()[0];
+  const measure = MEASURE();
   return (
-    <ResponsiveContainer width="100%" height={Math.max(rows.length * 30, 90)}>
-      <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 44, top: 4, bottom: 4 }}>
+    <ResponsiveContainer width="100%" height={Math.max(rows.length * 28, 88)}>
+      <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 40, top: 4, bottom: 4 }}>
         <XAxis type="number" hide />
         <YAxis
           type="category"
-          dataKey="key"
-          width={132}
+          dataKey="label"
+          width={140}
           tick={{ fontSize: 12, fill: axisColor() }}
           axisLine={false}
           tickLine={false}
@@ -90,15 +134,15 @@ function FacetBars({ facet, color }: { facet: Facet; color?: (key: string) => st
           content={({ payload }) =>
             payload?.length ? (
               <TooltipBox
-                label={String(payload[0].payload.key)}
+                label={String(payload[0].payload.label)}
                 rows={[{ key: "jobs", value: String(payload[0].payload.count) }]}
               />
             ) : null
           }
         />
-        <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false}>
-          {rows.map((r) => (
-            <Cell key={r.key} fill={color ? color(r.key) : single} />
+        <Bar dataKey="count" radius={[0, 3, 3, 0]} maxBarSize={12} isAnimationActive={false}>
+          {rows.map((r, i) => (
+            <Cell key={r.key} fill={color ? color(r.key, i, rows.length) : measure} />
           ))}
           <LabelList
             dataKey="count"
@@ -112,9 +156,38 @@ function FacetBars({ facet, color }: { facet: Facet; color?: (key: string) => st
   );
 }
 
+/** Quality flags: the bars plus the icon-and-word key the status scale is only
+ *  allowed to be used with. */
+function QualityChart({ facet }: { facet: Facet }) {
+  const rows = facet.rows.filter((r) => r.key !== "_summary");
+  return (
+    <>
+      <FacetBars
+        facet={facet}
+        label={qualityLabel}
+        color={(key) => QUALITY_TONE[key]?.color ?? MUTED}
+      />
+      <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+        {rows.map((r) => {
+          const tone = QUALITY_TONE[r.key];
+          const Icon = tone?.icon ?? AlertTriangle;
+          return (
+            <li key={r.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Icon className="h-3.5 w-3.5" style={{ color: tone?.color ?? MUTED }} />
+              {qualityLabel(r.key)}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
 /** Vertical bars for an ordered distribution (a histogram), where the x axis
- *  carries meaning and reordering it would destroy that. */
-function FacetHistogram({ facet, fill }: { facet: Facet; fill: string }) {
+ *  carries meaning and reordering it would destroy that. The bands are already
+ *  in order along the axis, so the bars are one measure in one colour — a ramp
+ *  here would encode the x position a second time, in hue. */
+function FacetHistogram({ facet }: { facet: Facet }) {
   const rows = facet.rows.filter((r) => r.key !== "_summary");
   if (!rows.length || rows.every((r) => !r.count)) return <Empty>Nothing to show yet.</Empty>;
   return (
@@ -145,8 +218,99 @@ function FacetHistogram({ facet, fill }: { facet: Facet; fill: string }) {
             ) : null
           }
         />
-        <Bar dataKey="count" fill={fill} radius={[3, 3, 0, 0]} maxBarSize={44} isAnimationActive={false} />
+        <Bar
+          dataKey="count"
+          fill={MEASURE()}
+          radius={[3, 3, 0, 0]}
+          maxBarSize={40}
+          isAnimationActive={false}
+        />
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** Whole dollars with a thousands separator. The conversion is an estimate off
+ *  a rate with a check-date on it, so the tenth of a dollar `$1574.8` was
+ *  showing was precision the number does not have. */
+const usd = (n: number | undefined) =>
+  n === undefined ? "—" : `$${Math.round(n).toLocaleString("en-US")}`;
+
+const DAY_FMT = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
+const FULL_FMT = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
+const asDay = (iso: string, fmt: Intl.DateTimeFormat) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : fmt.format(d);
+};
+
+/**
+ * Postings per day, as a time series.
+ *
+ * A column chart of dates was the wrong form twice over: it treated a
+ * continuous axis as a row of independent categories, and — sharing both its
+ * shape and its hue with the source chart above it — it read as the *same
+ * chart drawn twice*. An area over a date axis says "over time" at a glance,
+ * which is the one thing this facet is for.
+ */
+function PostingTrend({ facet }: { facet: Facet }) {
+  const rows = facet.rows.filter((r) => r.key !== "_summary");
+  // No all-zero early return, deliberately — unlike the histogram. A flat line
+  // across thirty days means nobody posted for a month, which is a fact about
+  // the market and belongs on the chart. An empty histogram means the bands
+  // have nothing to divide, which is not.
+  if (!rows.length) return <Empty>No posting dates yet.</Empty>;
+  const measure = MEASURE();
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <AreaChart data={rows} margin={{ left: 0, right: 8, top: 8, bottom: 4 }}>
+        <defs>
+          <linearGradient id="postingFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={measure} stopOpacity={0.28} />
+            <stop offset="100%" stopColor={measure} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid vertical={false} stroke={gridColor()} strokeDasharray="0" />
+        <XAxis
+          dataKey="key"
+          tickFormatter={(v) => asDay(String(v), DAY_FMT)}
+          // Let recharts drop ticks rather than overlap them: 26 dates in a
+          // card this wide collided into a grey smear.
+          minTickGap={28}
+          tick={{ fontSize: 11, fill: axisColor() }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fontSize: 11, fill: axisColor() }}
+          axisLine={false}
+          tickLine={false}
+          width={28}
+        />
+        <Tooltip
+          cursor={{ stroke: gridColor(), strokeWidth: 1 }}
+          content={({ payload, label }) =>
+            payload?.length ? (
+              <TooltipBox
+                label={asDay(String(label), FULL_FMT)}
+                rows={[{ key: "posted", value: String(payload[0].value), color: measure }]}
+              />
+            ) : null
+          }
+        />
+        <Area
+          // Linear, not monotone: a spline through integer daily counts invents
+          // peaks on days nobody posted and rounds off the days they did.
+          type="linear"
+          dataKey="count"
+          stroke={measure}
+          strokeWidth={2}
+          fill="url(#postingFill)"
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--viz-surface, #fff)" }}
+          isAnimationActive={false}
+        />
+      </AreaChart>
     </ResponsiveContainer>
   );
 }
@@ -287,7 +451,7 @@ export function Market({ version }: { version: number }) {
                 Median pay (est.)
               </p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {salarySummary ? `$${salarySummary.median_usd_month}` : "—"}
+                {usd(salarySummary?.median_usd_month)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {salarySummary
@@ -311,7 +475,7 @@ export function Market({ version }: { version: number }) {
         </div>
 
         <Section id="skills" title="Most requested skills" facet={data.skills}>
-          <FacetBars facet={data.skills} />
+          <FacetBars facet={data.skills} label={skillLabel} />
           <p className="mt-3 text-xs text-muted-foreground">
             Counted once per job from the canonical form, so “Spring Boot” and “Spring” are one
             thing. LinkedIn alerts carry no tags at all, which is most of what is missing here.
@@ -319,10 +483,28 @@ export function Market({ version }: { version: number }) {
         </Section>
 
         <Section id="salary" title="Pay distribution" facet={data.salary}>
-          <FacetHistogram facet={data.salary} fill={categorical()[1]} />
+          {/* Under the sample floor the bands are a single bar in an empty
+              grid — the "one-bar bar chart" that should have been a number.
+              Show the number, and say what it is drawn from. */}
+          {data.salary.covered >= data.min_sample ? (
+            <FacetHistogram facet={data.salary} />
+          ) : salarySummary ? (
+            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 py-2">
+              <div>
+                <p className="text-2xl font-semibold">{usd(salarySummary.median_usd_month)}</p>
+                <p className="text-xs text-muted-foreground">median / month</p>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                from {data.salary.covered} of {data.salary.total} postings — not yet a
+                distribution.
+              </div>
+            </div>
+          ) : (
+            <Empty>No posting carried a salary this parser could read.</Empty>
+          )}
           {salarySummary && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Range ${salarySummary.min_usd_month}–${salarySummary.max_usd_month}/month. Converted
+              Range {usd(salarySummary.min_usd_month)}–{usd(salarySummary.max_usd_month)}/month. Converted
               at {salarySummary.fx_rate?.toLocaleString()} VND/USD (checked{" "}
               {salarySummary.fx_checked_on}) — an estimate, not a quote.
             </p>
@@ -334,7 +516,13 @@ export function Market({ version }: { version: number }) {
         </Section>
 
         <Section id="levels" title="Seniority mix" facet={data.levels}>
-          <FacetBars facet={data.levels} />
+          {/* The one bar chart here whose rows are an ordered scale, so the one
+              that earns a ramp: junior → senior darkens. */}
+          <FacetBars
+            facet={data.levels}
+            label={levelLabel}
+            color={(_key, i, total) => ordinalRamp(total)[i]}
+          />
           <p className="mt-3 text-xs text-muted-foreground">
             Level is inferred from the title and description, so an ad with neither is unknown
             rather than junior.
@@ -342,7 +530,7 @@ export function Market({ version }: { version: number }) {
         </Section>
 
         <Section id="match" title="Match against your stacks" facet={data.match_scores}>
-          <FacetHistogram facet={data.match_scores} fill={categorical()[0]} />
+          <FacetHistogram facet={data.match_scores} />
           <p className="mt-3 text-xs text-muted-foreground">
             Scored at crawl time against <code>crawl.stacks</code>. A corpus bunched to the left
             means the search queries need work, not that the market does.
@@ -350,15 +538,22 @@ export function Market({ version }: { version: number }) {
         </Section>
 
         <Section id="quality" title="Posting quality" facet={data.quality}>
-          <FacetBars facet={data.quality} />
+          <QualityChart facet={data.quality} />
+          <p className="mt-3 text-xs text-muted-foreground">
+            A posting can carry more than one flag, so these add up past the corpus.
+          </p>
         </Section>
 
         <Section id="sources" title="Where they came from" facet={data.sources}>
-          <FacetBars facet={data.sources} color={sourceColor} />
+          <SourceDonut rows={data.sources.rows} total={data.total_jobs} />
+          <p className="mt-4 text-xs text-muted-foreground">
+            The denominator behind every other card on this page: a facet LinkedIn can't fill —
+            skills, salary, tags — is missing most of this ring.
+          </p>
         </Section>
 
         <Section id="calendar" title="Posted per day" facet={data.calendar}>
-          <FacetHistogram facet={data.calendar} fill={categorical()[3]} />
+          <PostingTrend facet={data.calendar} />
           <p className="mt-3 text-xs text-muted-foreground">
             By <em>posting</em> date, not crawl date — the deck's “crawled per day” chart measures
             your habits, this measures the market's.
