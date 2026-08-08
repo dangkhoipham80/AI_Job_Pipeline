@@ -231,6 +231,10 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
         "posted_at": posted_at.isoformat() if posted_at else None,
         "level": level,
         "skills": raw.skills,
+        # Derived fields for analytics. Each sits *beside* the raw value rather
+        # than replacing it: the raw string is what the board actually said, and
+        # a derivation that turns out wrong should be re-runnable against it.
+        **derived_facets(raw.salary, raw.skills, raw.location, desc_md),
         "description_md": desc_md,
         "apply_channel": raw.apply_channel,
         "apply_target": raw.apply_target,
@@ -264,3 +268,71 @@ def normalize(raw: RawJob, cfg: Config, now: datetime | None = None) -> Normaliz
         dedup_key=dedup_key(raw.company, raw.title),
         payload=payload,
     )
+
+
+#: "Remote" written the ways boards write it. Deliberately anchored on word
+#: boundaries: `"remote" in text` matched "remote debugging" in a JD, which is
+#: the substring trap CLAUDE.md already records paying for once.
+_REMOTE_RE = re.compile(r"\b(remote|work from home|wfh|anywhere)\b", re.I)
+
+
+def derived_facets(
+    salary_raw: str | None,
+    skills_raw: list[str] | None,
+    location_raw: str | None,
+    description_md: str = "",
+) -> dict:
+    """Analytics-ready fields derived from what the scraper found.
+
+    Split out of ``normalize`` so ``cli backfill`` can re-run exactly this on
+    rows crawled before these fields existed — the same shape
+    ``crawler/quality.backfill`` uses, and for the same reason: a derivation
+    that only runs at crawl time silently splits the database into rows that
+    have it and rows that never will.
+    """
+    from jobpilot.crawler.salary import parse as parse_salary_range
+    from jobpilot.crawler.skills import canonicalise
+    from jobpilot.crawler.vietnam import canonical_city, looks_like_city
+
+    money = parse_salary_range(salary_raw)
+    location = clean_text(location_raw)
+    # Only the location field decides "remote" — not the JD. A description that
+    # mentions remote work in a perk list is not a remote job.
+    remote = bool(location and _REMOTE_RE.search(location))
+    return {
+        "salary_range": money.as_dict() if money else None,
+        "skills_canonical": canonicalise(skills_raw),
+        "city": canonical_city(location) if location and looks_like_city(location) else None,
+        "is_remote": remote,
+    }
+
+
+def backfill_facets(session, *, force: bool = False) -> int:
+    """Add the derived analytics fields to jobs crawled before they existed.
+
+    Same contract as ``crawler.quality.backfill``: idempotent, returns rows
+    touched. Skips rows that already carry the fields unless ``force`` — which
+    exists because a *parser* fix (a salary shape it used to miss) needs to
+    re-run over rows that already have a ``None`` answer on file.
+    """
+    from sqlalchemy import select
+
+    from jobpilot.store.models import Job
+
+    touched = 0
+    for job in session.scalars(select(Job)):
+        payload = dict(job.payload or {})
+        if not force and "skills_canonical" in payload:
+            continue
+        payload.update(
+            derived_facets(
+                payload.get("salary"),
+                payload.get("skills"),
+                payload.get("location"),
+                payload.get("description_md", ""),
+            )
+        )
+        job.payload = payload
+        touched += 1
+    session.commit()
+    return touched

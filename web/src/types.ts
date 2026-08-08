@@ -512,6 +512,80 @@ export interface Settings {
     portal_prefill: boolean;
   };
   cv: { master_dir: string; out_dir: string; docker_image: string; theme: string };
+  llm: LlmSettings;
+}
+
+/** Which model runs which task. Empty string on a task = fall back to `provider`. */
+export interface LlmSettings {
+  provider: string;
+  tailor: string;
+  letter: string;
+  classify: string;
+  /** provider -> model id. Absent = that provider's own default. */
+  models: Record<string, string>;
+  /** task -> model id, overriding `models` for one call. */
+  task_models: Record<string, string>;
+  /** provider -> dollars you put on that account. Not fetchable: vendor spend
+   *  endpoints all need an Admin key, so this is typed in by hand. */
+  budget_usd: Record<string, number>;
+  /** Gemini alone changes its data-use terms by tier, and a key can't reveal which. */
+  gemini_paid_tier: boolean;
+}
+
+export type LlmTask = "tailor" | "letter" | "classify";
+
+export interface BackendStats {
+  task: string;
+  provider: string;
+  model: string;
+  /** Distinct tasks. A tailor that retried once is one attempt, two rounds. */
+  attempts: number;
+  rounds: number;
+  /** null when no round on record carried a price — never render this as 0. */
+  cost_usd: number | null;
+  unpriced_rounds: number;
+  input_tokens: number;
+  output_tokens: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  /** null below `min_sample`: too few calls to quote a percentage. */
+  first_try_rate: number | null;
+  success_rate: number | null;
+}
+
+export interface ModelOption {
+  provider: string;
+  model: string;
+  input_per_mtok: number;
+  output_per_mtok: number;
+  /** False only when a live fetch ran and the provider did not offer this id. */
+  available: boolean;
+}
+
+export interface ProviderSpend {
+  provider: string;
+  has_key: boolean;
+  spent_usd: number;
+  unpriced_rounds: number;
+  /** What you told us is on the account. Null = not set. */
+  budget_usd: number | null;
+  /** budget minus our own recorded spend — NOT a balance read from the vendor. */
+  remaining_usd: number | null;
+  models: string[];
+}
+
+export interface LlmStats {
+  min_sample: number;
+  backends: BackendStats[];
+  catalogue: ModelOption[];
+  spend: ProviderSpend[];
+  total_spent_usd: number;
+  providers: Record<string, boolean>;
+  /** Secrets whose .env value is overridden by a different environment variable. */
+  shadowed_env: string[];
+  configured: Record<string, string>;
+  warnings: Record<string, string[]>;
+  blockers: Record<string, string>;
 }
 
 export interface JobInput {
@@ -566,4 +640,46 @@ export interface CrawlSetupInfo {
   default_query: string;
   jobs_per_site: number;
   sources: CrawlSource[];
+}
+
+/* Market analytics (Phase 21) — mirrors jobpilot/analytics/market.py --------- */
+
+export interface FacetRow {
+  key: string;
+  count: number;
+  /** Only on the salary facet's trailing "_summary" row. */
+  median_usd_month?: number;
+  min_usd_month?: number;
+  max_usd_month?: number;
+  fx_rate?: number;
+  fx_checked_on?: string;
+}
+
+/**
+ * One chart's data plus how much of the corpus it actually saw. `covered` is
+ * load-bearing: most facets are sparse (LinkedIn carries no skills, salary or
+ * tags), so a bar chart without it describes the boards that tag their ads
+ * while looking like it describes the market.
+ */
+export interface Facet {
+  rows: FacetRow[];
+  covered: number;
+  total: number;
+  /** null when there is nothing to divide. */
+  coverage: number | null;
+  /** Set when the facet is too thin to read as a ranking. */
+  note: string;
+}
+
+export interface MarketReport {
+  total_jobs: number;
+  min_sample: number;
+  skills: Facet;
+  salary: Facet;
+  cities: Facet;
+  levels: Facet;
+  match_scores: Facet;
+  quality: Facet;
+  calendar: Facet;
+  sources: Facet;
 }

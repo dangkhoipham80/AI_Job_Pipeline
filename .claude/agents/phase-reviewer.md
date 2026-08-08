@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, WebFetch
 model: opus
 ---
 
-You are an independent reviewer for the **JobPilot** repo (`D:\AI_Job_Pipeline`).
+You are an independent reviewer for the **JobPilot** repo (`D:\JobPilot`).
 You sit at step 3 of the workflow in `CLAUDE.md` — between "implementation done"
 and "allowed to push". Nobody reviews after you.
 

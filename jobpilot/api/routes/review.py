@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
+from jobpilot import llm
 from jobpilot.api.deps import get_db, require_token
 from jobpilot.api.schemas import JobDetailOut, ReviewOut, TailorIn, TaskOut
 from jobpilot.api.ws import manager
@@ -32,7 +33,20 @@ router = APIRouter(prefix="/jobs", tags=["review"], dependencies=[Depends(requir
 
 
 def get_engine() -> TailorEngine:
-    """Overridden in tests with a fixture engine (no network, no API key)."""
+    """Overridden in tests with a fixture engine (no network, no API key).
+
+    The pre-flight sits here rather than in the route body for that reason: a
+    test that supplies its own engine should not be asked for a key it has no
+    use for. Checking in the route would make those tests pass or fail on
+    whether the machine running them happened to have one — the exact accident
+    ``test_missing_tokens_produce_a_readable_error`` was caught by in Phase 20.
+
+    A missing key is a 409 now instead of a task that dies a minute later, the
+    same courtesy the inbox route and the email gates extend.
+    """
+    blocked = llm.blocker("tailor")
+    if blocked:
+        raise HTTPException(status_code=409, detail=blocked)
     return default_engine()
 
 

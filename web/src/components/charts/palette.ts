@@ -39,9 +39,41 @@ export function categorical(): string[] {
 }
 
 // Stable color for a source name so ITviec is always the same hue everywhere.
-const SOURCE_ORDER = ["itviec", "topcv", "vietnamworks", "topdev", "fixture"];
+// Every source that can appear, in a fixed order. Sources beyond the list all
+// collapsed onto one hue, which put five different boards in the same red on
+// the Market page — colour has to identify the entity, and a shared colour
+// identifies nothing.
+// Exactly as many entries as the palette has hues. A longer list wraps —
+// `lever` at index 8 landed on `itviec`'s blue — and two boards sharing a
+// colour is worse than an unrecognised board getting one, because it looks
+// deliberate.
+const SOURCE_ORDER = [
+  "itviec",
+  "topcv",
+  "vietnamworks",
+  "linkedin",
+  "weworkremotely",
+  "lever",
+  "greenhouse",
+  "arbeitnow",
+];
 export function sourceColor(source: string): string {
   const pool = categorical();
   const i = SOURCE_ORDER.indexOf(source);
-  return pool[(i === -1 ? SOURCE_ORDER.length : i) % pool.length];
+  // An unknown source hashes to a stable slot rather than sharing one bucket
+  // with every other unknown — same entity, same colour, every render.
+  if (i !== -1) return pool[i % pool.length];
+  let h = 0;
+  for (const ch of source) h = (h * 31 + ch.charCodeAt(0)) % 1021;
+  return pool[h % pool.length];
+}
+
+// Stable color per model provider, so Claude is the same hue in the cost bar,
+// the table and the picker. Assigned by entity and fixed in order — filtering
+// the list must never repaint the survivors.
+const PROVIDER_ORDER = ["claude", "openai", "gemini"];
+export function providerColor(provider: string): string {
+  const pool = categorical();
+  const i = PROVIDER_ORDER.indexOf(provider);
+  return pool[(i === -1 ? PROVIDER_ORDER.length : i) % pool.length];
 }

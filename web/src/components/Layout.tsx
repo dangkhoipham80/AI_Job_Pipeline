@@ -4,6 +4,8 @@ import {
   Activity,
   Briefcase,
   BookOpen,
+  Cpu,
+  TrendingUp,
   FileText,
   LayoutDashboard,
   Moon,
@@ -21,6 +23,8 @@ const NAV = [
   { to: "/cv", label: "CV Studio", icon: FileText, end: false },
   { to: "/applications", label: "Applications", icon: Send, end: false },
   { to: "/runs", label: "Runs", icon: Activity, end: false },
+  { to: "/market", label: "Market", icon: TrendingUp, end: false },
+  { to: "/models", label: "Models", icon: Cpu, end: false },
   { to: "/settings", label: "Settings", icon: Settings2, end: false },
   { to: "/guide", label: "Guide", icon: BookOpen, end: false },
 ];

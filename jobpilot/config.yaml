@@ -97,7 +97,7 @@ cv:
 #   classify  read one employer email -> one of six labels + one quoted
 #             sentence. The easiest by far, and its guardrail is mechanical
 #             (the quote either appears in the message or the suggestion is
-#             dropped). Safe to run locally.
+#             dropped). The obvious place to point at a cheaper model.
 #   tailor    reorder numbered CV items + write one summary paragraph. The
 #             plan is index-based, so the model ranks rather than writes.
 #             The guardrail catches invented skills and invalid indices — it
@@ -106,17 +106,30 @@ cv:
 #   letter    300 words of prose a stranger will judge you on. The place where
 #             model quality shows most, and the cheapest call to keep paid.
 #
-# provider = the default for all three; the per-task keys override it.
-# Local models need `ollama serve` running and the model pulled:
-#   ollama pull qwen2.5:7b
+# provider = the default for all three; the per-task keys override it. Each
+# provider needs its own key in .env — ANTHROPIC_API_KEY / OPENAI_API_KEY /
+# GOOGLE_API_KEY. A missing one is reported before the task is queued.
+#
+# Data use, checked 2026-08-08 (see jobpilot/llm/pricing.py for links): the
+# Anthropic, OpenAI and *paid* Gemini APIs do not train on what you send them.
+# Gemini's **unpaid** tier does, and its terms say in as many words not to send
+# personal information — which is exactly what `tailor` and `letter` send, since
+# the whole Master CV goes in the system prompt. Set `gemini_paid_tier: false`
+# if you are on the free tier and JobPilot will say so before every such call.
 llm:
-  provider: claude            # claude | ollama
-  host: http://127.0.0.1:11434
-  model: qwen2.5:7b           # local model used unless a task overrides it
+  provider: claude            # claude | openai | gemini
 
-  classify: ollama            # start here: safest of the three
   tailor: ""                  # "" = use `provider`
   letter: ""
+  classify: ""
 
-  tailor_model: ""            # e.g. qwen2.5:14b — slower, better at ranking
-  classify_model: ""
+  models:                     # per-provider model; blank falls back to its default
+    claude: claude-opus-4-8
+    openai: gpt-4.1
+    gemini: gemini-3.5-flash
+
+  task_models:                # per-task override — cheaper models for easier calls
+    classify: ""              # e.g. claude-haiku-4-5: ~5x cheaper, and Phase 20
+                              # showed a local 7B got this one 5/5
+
+  gemini_paid_tier: true

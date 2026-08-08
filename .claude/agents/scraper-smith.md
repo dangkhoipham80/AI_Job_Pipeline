@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Grep, Glob, Bash, WebFetch
 model: opus
 ---
 
-You add job-board sources to the **JobPilot** crawler (`D:\AI_Job_Pipeline`).
+You add job-board sources to the **JobPilot** crawler (`D:\JobPilot`).
 This repo has paid for every rule below with a real bug. Follow the order.
 
 ## Step 0 — robots.txt is a gate, not a formality
