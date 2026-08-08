@@ -380,9 +380,12 @@ export function Models({ version }: { version: number }) {
                       onChange={(e) => setModel(key, e.target.value)}
                     >
                       <option value="">provider default</option>
-                      {(byProvider[provider] ?? []).map((m) => (
+                      {(byProvider[provider] ?? []).map((m, i) => (
                         <option key={m.model} value={m.model}>
                           {m.model} — ${m.input}/${m.output} per Mtok
+                          {/* The API returns each provider's models cheapest
+                              first, so index 0 is the cheapest on offer. */}
+                          {i === 0 ? " · cheapest" : ""}
                           {m.available ? "" : " (not offered to your key)"}
                         </option>
                       ))}

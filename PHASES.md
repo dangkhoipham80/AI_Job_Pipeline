@@ -407,3 +407,49 @@ nằm ở `CLAUDE.md` mục "Nợ kỹ thuật" và "Thêm một site crawl mớ
      model khác.
   Thêm `ya29.` vào `_SHAPES` (chưa dùng tới, nhưng rẻ), và bỏ `BenchResult.latency_ms` +
   `median_latency_ms` — dead code chưa bao giờ được ghi. 645 test.
+
+- ✅ **Phase 21** — Trang **/market**: nghiên cứu thị trường từ corpus đã crawl. `crawler/salary.py`
+  + `crawler/skills.py` + `vietnam.canonical_city` (Phase A: trích dữ liệu), `analytics/market.py`
+  + `GET /analytics/market` + `web/src/pages/Market.tsx` (Phase B: đo và vẽ).
+
+  **Đếm dữ liệu trước khi thiết kế, và nó đổi hẳn thứ tự công việc.** Yêu cầu là "nhiều biểu đồ
+  thống kê + nghiên cứu thị trường". Đếm thật: `applications` **0**, `application_events` **0**
+  ⇒ mọi funnel sau khi nộp trống; `salary` **3/73** mà **2 là bug scraper**; `skills` 24/73 và
+  LinkedIn (**57% corpus**) không có tag nào. Vẽ 12 biểu đồ lúc đó = một trang đầy panel trống
+  và sai. Nên: **làm dữ liệu trước, biểu đồ sau**.
+
+  **Luật của phase này: mỗi facet tự khai mẫu số.** `Facet.covered/total`, hiện ra UI là
+  "18 of 73 jobs" chứ không phải một %. Lý do rất cụ thể: một bảng xếp hạng skill dựng từ 18/73
+  job là *sự thật về 18 job* và *hư cấu về thị trường* — chỉ mẫu số phân biệt được hai thứ đó.
+  Cùng họ với `MIN_SAMPLE` của `llm/stats.py`, áp cho một kiểu "mỏng" khác.
+
+  **Ba lỗi "trông như đúng", cả ba chỉ thấy khi nhìn biểu đồ thật:**
+  1. **Skill**: `+2` (badge tràn của card ITviec), `Vollzeit`, `Backend Developer`,
+     `IT Services and IT Consulting`, `India` đứng ngang `Java`. Lọc bằng **pattern**, không
+     bằng blocklist: `_ROLE_RE` khớp **danh từ số ít** nên bỏ "software engineer" mà vẫn giữ
+     "data engineering" — phân biệt đó chính là lý do nó là regex.
+  2. **City**: `Hà Nội` / `Ha Noi` / `Hanoi` ra **ba cột**, mỗi cột 1/3 số thật (4+4+3 → 11).
+     `canonical_city` fold ASCII rồi map alias — cùng kỹ thuật `apply/inbox.fold` đã dùng để so
+     tên công ty với domain.
+  3. **Lương**: `"15tr - 25tr"` ra **15–15**. Unit nằm giữa số và dấu gạch làm vỡ regex range,
+     rơi xuống nhánh một-số, trần bị giảm một nửa **không báo gì**.
+
+  **Hai lỗi biểu đồ, phát hiện bằng cách nhìn ảnh chụp chứ không phải bằng test:**
+  - Tô 8 màu categorical xuống 15 dòng skill = tô theo **thứ hạng**. Màu phải theo *thực thể*;
+    đổi filter là đổi màu, tức là mã hoá một thứ không tồn tại. Một measure ⇒ một màu.
+  - `SOURCE_ORDER` có 10 mục nhưng palette có 8 hue ⇒ `lever` (index 8) đội đúng màu xanh của
+    `itviec`. Hai board cùng màu **tệ hơn** một board lạ không có màu riêng, vì nó trông như cố ý.
+
+  **Không đoán khi thiếu ký hiệu**: `"20 - 60"` không có currency ⇒ `None` (là triệu VND hay
+  USD/giờ tuỳ board — đoán là tung đồng xu rồi trình bày như sự thật). `"Up to 3000"` ⇒
+  `min=None`, không bịa 0 (một midpoint tưởng tượng sẽ kéo tụt median cả corpus). Quy đổi USD
+  dùng `USD_VND_RATE` kèm `FX_CHECKED_ON`, UI gọi nó là **ước tính** — cùng họ với bảng giá
+  `llm/pricing.py`, và nó **sẽ** cũ đi.
+
+  **Sidebar**: `Layout.tsx` **đã có** một sidebar (8 mục). Không thêm cái thứ hai ở tầng Layout —
+  sẽ đổi bố cục mọi trang để phục vụ một trang. Section-nav nằm **trong** `Market.tsx`.
+
+  **Verify:** 658 test; `backfill --force` chạy trên **73 job thật** rồi *đọc tay* output (banner
+  ITviec → `None`, lương thật → số đúng, city gộp đúng); `/market` chụp thật **light + dark**,
+  console sạch. `--force` tồn tại vì một bản vá *parser* phải chạy lại được trên chính những row
+  mà nó từng trả lời sai — không có nó thì bug bị đóng băng vào dữ liệu nó làm hỏng.

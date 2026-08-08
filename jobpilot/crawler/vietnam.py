@@ -259,3 +259,56 @@ def find_salary(texts: list[str] | tuple[str, ...]) -> str | None:
         if found:
             return found
     return None
+
+
+#: Spellings that mean the same city. Keys are ASCII-folded; the value is the
+#: canonical label shown in charts. Without this a "top cities" chart lists
+#: "Hà Nội", "Ha Noi" and "Hanoi" as three different places and splits the count
+#: three ways — the same failure mode as raw skill tags, in a different field.
+_CITY_ALIASES = {
+    "hanoi": "Hà Nội",
+    "ha noi": "Hà Nội",
+    "hn": "Hà Nội",
+    "ho chi minh": "Hồ Chí Minh",
+    "ho chi minh city": "Hồ Chí Minh",
+    "hochiminh": "Hồ Chí Minh",
+    "saigon": "Hồ Chí Minh",
+    "sai gon": "Hồ Chí Minh",
+    "hcm": "Hồ Chí Minh",
+    "hcmc": "Hồ Chí Minh",
+    "tphcm": "Hồ Chí Minh",
+    "danang": "Đà Nẵng",
+    "da nang": "Đà Nẵng",
+    "hue": "Huế",
+    "can tho": "Cần Thơ",
+    "hai phong": "Hải Phòng",
+    "haiphong": "Hải Phòng",
+}
+
+
+def canonical_city(text: str | None) -> str | None:
+    """One agreed label for a city, whatever spelling the board used.
+
+    Built on the same ASCII fold ``apply/inbox.fold`` uses, and for the same
+    reason: Vietnamese place names are written with and without diacritics
+    interchangeably, so comparison has to happen with them removed.
+    """
+    import unicodedata
+
+    cleaned = clean_city(text)
+    if not cleaned:
+        return None
+    decomposed = unicodedata.normalize("NFD", cleaned.lower())
+    folded = "".join(c for c in decomposed if not unicodedata.combining(c)).replace("đ", "d")
+    folded = re.sub(r"[^a-z ]+", " ", folded)
+    folded = re.sub(r"\s+", " ", folded).strip()
+    if folded in _CITY_ALIASES:
+        return _CITY_ALIASES[folded]
+    # A known city written in full, accents and all: return the canonical
+    # spelling from CITIES rather than whatever casing the board used.
+    for city in CITIES:
+        city_dec = unicodedata.normalize("NFD", city.lower())
+        city_folded = "".join(c for c in city_dec if not unicodedata.combining(c)).replace("đ", "d")
+        if city_folded == folded:
+            return city
+    return cleaned

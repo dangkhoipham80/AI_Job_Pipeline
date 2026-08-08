@@ -128,7 +128,14 @@ def llm_stats(
             # than hidden: absence of evidence is not a withdrawn model.
             available=_offered(model, live_models.get(provider)),
         )
-        for (provider, model), rate in sorted(PRICES.items())
+        # Cheapest first, per provider. The picker renders this order, so the
+        # first thing offered for a backend is its cheapest model — "default to
+        # the cheapest that still works" is easier to follow when the list is
+        # not alphabetical. Ranked on input+output together because a model can
+        # be cheap on one and dear on the other.
+        for (provider, model), rate in sorted(
+            PRICES.items(), key=lambda kv: (kv[0][0], kv[1][0] + kv[1][1], kv[0][1])
+        )
         if provider in PROVIDERS
     ]
 

@@ -83,7 +83,8 @@ python -m jobpilot.cli crawl --query "java spring" --limit 50   # scope 1 lần 
                                     # đi thêm bao nhiêu trang (mặc định 5).
                                     # (hoặc dùng card "Crawl setup" ở trang Runs: chọn nguồn,
                                     #  gõ từ khoá — có gợi ý lấy từ Master CV — rồi Crawl now)
-python -m jobpilot.cli backfill     # gắn quality signal cho job crawl trước Phase 14 (idempotent)
+python -m jobpilot.cli backfill     # gắn quality signal + facet phân tích cho job cũ (idempotent)
+python -m jobpilot.cli backfill --force   # tính lại cả row đã có — dùng sau khi SỬA parser
 python -m jobpilot.cli cv seed      # tạo Master CV rỗng nếu chưa có (idempotent)
 python -m jobpilot.cli cv import my-cv.local.json   # nạp CV có sẵn vào DB
 python -m jobpilot.cli cv export my-cv.local.json   # backup CV từ DB ra file (gitignored)
@@ -230,6 +231,7 @@ ngay bên dưới là phần **còn đang áp dụng**, đủ cho việc thườ
 | 19 | Đọc thư NTD → **đề xuất** outcome, user bấm mới ghi | `apply/inbox.py`, migration 0008 |
 | 20 | Chạy model **trên máy mình** (Ollama) — chọn provider theo từng việc | ~~`llm/ollama.py`~~ (gỡ ở 20b) |
 | 20b | Một tầng provider: claude/openai/gemini, cảnh báo dữ liệu, **đo chi phí + chất lượng** | `llm/`, migration 0009, `llm/stats.py` |
+| 21 | Trang **/market**: nghiên cứu thị trường từ corpus đã crawl + trích lương/skill/city | `analytics/`, `crawler/salary.py`, `skills.py` |
 | 20c | Trang **/models**: chọn model theo việc, dashboard giá + credit đã dùng/còn, scrub key | `web/src/pages/Models.tsx`, `llm/redact.py` |
 
 637 test pass. Đã verify trên môi trường thật: Alembic lên **PostgreSQL 17 local**
@@ -334,6 +336,34 @@ kể cả OpenAI strict mode. Biến môi trường `OPENAI_API_KEY` cũ đã g�
   dừng trong máy. Muốn quay lại local thì Ollama có endpoint OpenAI-compatible
   (`localhost:11434/v1`) map `response_format` vào cùng grammar — tức **một entry trong
   `PROVIDERS` với `base_url` khác**, không phải viết lại module.
+
+### Market analytics (Phase 21) — đọc trước khi thêm biểu đồ
+
+- **Mỗi aggregate phải trả kèm `covered`/`total`.** `analytics/market.Facet`. Corpus này 57% là
+  LinkedIn, mà LinkedIn **không có** skill/lương/tag ⇒ biểu đồ không kèm mẫu số thì đang mô tả
+  *mấy board chịu gắn tag* nhưng trông như mô tả *thị trường*. UI in "18 of 73 jobs", **không**
+  in % trần trụi. Dưới `MIN_SAMPLE=8` thì có `note` cảnh báo.
+- **Trang `/market` mô tả *corpus đã crawl*, không phải thị trường VN.** Câu này nằm ngay đầu
+  trang, cố ý.
+- **Facet là dữ liệu dẫn xuất, luôn nằm CẠNH giá trị thô** (`skills` vs `skills_canonical`,
+  `salary` vs `salary_range`). Parser sai thì còn thứ để chạy lại — `backfill --force`.
+- **Ba nguồn nhiễu đã trả giá, cả ba cùng một dạng "trông như đúng":**
+  1. Tag của board xếp `+2` (badge tràn của card ITviec), `Vollzeit`, `Backend Developer`,
+     `IT Services and IT Consulting`, `India` ngang hàng với `Java`. Lọc bằng **pattern**
+     (`_ROLE_RE` khớp danh từ số ít ⇒ bỏ "software engineer", giữ "data engineering"), không
+     bằng blocklist dài mãi.
+  2. `Hà Nội` / `Ha Noi` / `Hanoi` thành **ba** cột, mỗi cột 1/3 số thật. `vietnam.canonical_city`
+     fold ASCII (cùng cách `apply/inbox.fold` làm) rồi map alias.
+  3. `"15tr - 25tr"` parse ra **15–15**: unit nằm giữa số và dấu gạch làm vỡ regex range, rơi
+     xuống nhánh một-số. Trần bị giảm một nửa mà không báo gì.
+- **Lương: không đoán.** Không có ký hiệu tiền tệ ⇒ `None` ("20 - 60" là triệu VND hay USD/giờ
+  tuỳ board). "Up to 3000" ⇒ `min=None`, **không** bịa 0. Quy đổi sang USD/tháng dùng
+  `salary.USD_VND_RATE` có `FX_CHECKED_ON` — là **ước tính**, UI phải nói thế.
+- **Màu: một measure thì một màu.** Tô 8 màu xuống 15 dòng là tô theo *thứ hạng* — đổi filter là
+  đổi màu. Chỉ facet mà mỗi dòng là một *thực thể* (source) mới truyền hàm màu. Và
+  `SOURCE_ORDER` phải **đúng bằng số hue**: dài hơn thì wrap, `lever` đội màu của `itviec`.
+- **`posting_calendar` dùng `posted_at`**, khác biểu đồ `by_day` của Deck (dùng `crawled_at` —
+  đo thói quen chạy crawler của mình, không đo thị trường).
 
 ### Inbox sync (Phase 19) — đọc trước khi đụng vào `apply/inbox.py`
 

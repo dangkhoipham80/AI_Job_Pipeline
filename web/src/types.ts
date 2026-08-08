@@ -641,3 +641,45 @@ export interface CrawlSetupInfo {
   jobs_per_site: number;
   sources: CrawlSource[];
 }
+
+/* Market analytics (Phase 21) — mirrors jobpilot/analytics/market.py --------- */
+
+export interface FacetRow {
+  key: string;
+  count: number;
+  /** Only on the salary facet's trailing "_summary" row. */
+  median_usd_month?: number;
+  min_usd_month?: number;
+  max_usd_month?: number;
+  fx_rate?: number;
+  fx_checked_on?: string;
+}
+
+/**
+ * One chart's data plus how much of the corpus it actually saw. `covered` is
+ * load-bearing: most facets are sparse (LinkedIn carries no skills, salary or
+ * tags), so a bar chart without it describes the boards that tag their ads
+ * while looking like it describes the market.
+ */
+export interface Facet {
+  rows: FacetRow[];
+  covered: number;
+  total: number;
+  /** null when there is nothing to divide. */
+  coverage: number | null;
+  /** Set when the facet is too thin to read as a ranking. */
+  note: string;
+}
+
+export interface MarketReport {
+  total_jobs: number;
+  min_sample: number;
+  skills: Facet;
+  salary: Facet;
+  cities: Facet;
+  levels: Facet;
+  match_scores: Facet;
+  quality: Facet;
+  calendar: Facet;
+  sources: Facet;
+}

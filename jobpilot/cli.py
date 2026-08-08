@@ -39,18 +39,22 @@ def _redact_url(url: str) -> str:
         return "(set, redacted)"
 
 
-def cmd_backfill(_: argparse.Namespace) -> int:
-    """Attach quality signals to jobs crawled before that existed.
+def cmd_backfill(args: argparse.Namespace) -> int:
+    """Attach quality signals and analytics facets to jobs crawled earlier.
 
-    Idempotent: rows that already carry signals are skipped, so running it
-    twice costs one query and changes nothing.
+    Idempotent: rows that already carry them are skipped, so running it twice
+    costs one query and changes nothing. ``--force`` recomputes anyway, which is
+    what a *parser* fix needs — otherwise the old wrong answer stays on file.
     """
+    from jobpilot.crawler.normalize import backfill_facets
     from jobpilot.crawler.quality import backfill
     from jobpilot.store.db import session_scope
 
     with session_scope() as db:
         touched = backfill(db, get_config())
-    print(f"annotated {touched} job(s)")
+        facets = backfill_facets(db, force=args.force)
+    print(f"annotated {touched} job(s) with quality signals")
+    print(f"derived salary/skills/city on {facets} job(s)")
     return 0
 
 
@@ -480,9 +484,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("config", help="validate & print resolved config").set_defaults(func=cmd_config)
-    sub.add_parser(
-        "backfill", help="add quality signals to jobs crawled before they existed"
-    ).set_defaults(func=cmd_backfill)
+    p_backfill = sub.add_parser(
+        "backfill", help="add quality signals + analytics facets to older jobs"
+    )
+    # A parser fix has to be re-runnable over rows that already hold its old,
+    # wrong answer — otherwise the bug is frozen into the data it corrupted.
+    p_backfill.add_argument(
+        "--force", action="store_true", help="recompute facets even if already present"
+    )
+    p_backfill.set_defaults(func=cmd_backfill)
 
     p_build = sub.add_parser("build", help="compile a CV to PDF via Docker (Phase 1)")
     p_build.add_argument("dir", nargs="?", default=None, help="work dir (default: repo root)")
