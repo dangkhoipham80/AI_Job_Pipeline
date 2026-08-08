@@ -15,11 +15,12 @@ PDF to attach, and that should be a 409 now, not a task failure later.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
+from jobpilot.api.paging import LimitParam, OffsetParam, page_list
 from jobpilot.api.schemas import (
     ApplicationEventOut,
     ApplicationOut,
@@ -27,11 +28,17 @@ from jobpilot.api.schemas import (
     FailureIn,
     JobDetailOut,
     OutcomeIn,
+    Page,
     TaskOut,
 )
 from jobpilot.api.ws import manager
 from jobpilot.apply import dispatcher
-from jobpilot.apply.followup import due_applications, mark_followed_up, stop_followups
+from jobpilot.apply.followup import (
+    due_applications,
+    due_count,
+    mark_followed_up,
+    stop_followups,
+)
 from jobpilot.apply.outcome import (
     OutcomeRefused,
     list_outcome_events,
@@ -112,34 +119,54 @@ async def _decide(job_id: str, db: Session, action) -> JobDetailOut:
     return JobDetailOut.from_job(job)
 
 
-@board.get("", response_model=list[ApplicationOut])
+@board.get("", response_model=Page[ApplicationOut])
 def list_applications(
     db: Session = Depends(get_db),
     result: str | None = None,
-    limit: int = 200,
-) -> list[ApplicationOut]:
-    """Rows for the Applications board, newest first."""
+    job_id: str | None = Query(None, description="the application for one job"),
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
+) -> dict:
+    """Rows for the Applications board, newest first.
+
+    ``result`` is what makes the board paginate per column: each column asks for
+    its own stage and gets its own total, so a hundred rejections no longer push
+    the offers off the bottom of a shared window.
+
+    ``job_id`` exists because the Slack bot wants exactly one row and was
+    reading the whole list to find it — a scan that quietly started missing rows
+    the moment this endpoint grew a page size.
+    """
     query = db.query(Application, Job).join(Job, Application.job_id == Job.id)
     if result:
         query = query.filter(Application.result == result)
-    rows = query.order_by(Application.id.desc()).limit(limit).all()
-    return [ApplicationOut.from_row(app, job) for app, job in rows]
+    if job_id:
+        query = query.filter(Application.job_id == job_id)
+    total = query.count()
+    # Application.id is unique, so this order is already total.
+    rows = query.order_by(Application.id.desc()).limit(limit).offset(offset).all()
+    items = [ApplicationOut.from_row(app, job) for app, job in rows]
+    return page_list(items, total, limit, offset)
 
 
-@board.get("/followups", response_model=list[ApplicationOut])
-def list_followups(db: Session = Depends(get_db), limit: int = 50) -> list[ApplicationOut]:
+@board.get("/followups", response_model=Page[ApplicationOut])
+def list_followups(
+    db: Session = Depends(get_db),
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
+) -> dict:
     """Applications whose next follow-up has come due, oldest first.
 
     Read-only on purpose. Nothing is sent from here: a follow-up is a message to
     a person deciding about you, and mail that leaves the machine without you
     seeing it is exactly what principle 2 forbids.
     """
-    rows = []
-    for app in due_applications(db, limit=limit):
+    items = []
+    for app in due_applications(db, limit=limit, offset=offset):
         job = db.get(Job, app.job_id)
         if job is not None:
-            rows.append(ApplicationOut.from_row(app, job))
-    return rows
+            items.append(ApplicationOut.from_row(app, job))
+    return page_list(items, due_count(db), limit, offset)
 
 
 @board.post("/{application_id}/followed-up", response_model=ApplicationOut)

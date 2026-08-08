@@ -307,7 +307,7 @@ def test_the_linkedin_posting_id_makes_the_job_id_stable(client):
 
     assert first["id"] == second["id"] == "manual:linkedin-4012345678"
     assert second["title"] == "Backend Engineer II"
-    assert len(client.get("/jobs", headers=AUTH).json()) == 1
+    assert client.get("/jobs", headers=AUTH).json()["total"] == 1
 
 
 def test_a_job_without_a_url_still_gets_a_stable_id(client):

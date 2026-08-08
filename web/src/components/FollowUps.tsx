@@ -15,9 +15,17 @@ import type { Application } from "@/types";
 export function FollowUps({
   items,
   onChange,
+  pager,
+  total,
 }: {
   items: Application[];
   onChange: () => void;
+  /** Rendered under the list. Passed in rather than built here so the page
+   *  owns the page state that its refetch already depends on. */
+  pager?: React.ReactNode;
+  /** How many are due in total, not just on this page — the heading counts
+   *  the work, and a page size is not a fact about the work. */
+  total?: number;
 }) {
   const [busy, setBusy] = useState<number | null>(null);
 
@@ -34,14 +42,15 @@ export function FollowUps({
     [onChange],
   );
 
-  if (!items.length) return null;
+  const count = total ?? items.length;
+  if (!count) return null;
 
   return (
     <Card className="border-caution/40 bg-caution/5 p-4">
       <header className="mb-3 flex items-center gap-2">
         <BellRing size={15} className="shrink-0 text-caution" />
         <h2 className="text-sm font-semibold">
-          {items.length} application{items.length > 1 ? "s" : ""} worth chasing
+          {count} application{count > 1 ? "s" : ""} worth chasing
         </h2>
       </header>
 
@@ -77,6 +86,7 @@ export function FollowUps({
           </li>
         ))}
       </ul>
+      {pager}
     </Card>
   );
 }

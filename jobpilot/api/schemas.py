@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,6 +12,32 @@ from jobpilot.apply.followup import describe, is_due
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job, JobStatus
 from jobpilot.tailor.diff import CvDiff
+
+T = TypeVar("T")
+
+#: Rows per request when the caller doesn't say.
+DEFAULT_PAGE_SIZE = 25
+#: Hard ceiling. A caller asking for more gets a 422, not a slow success — an
+#: unbounded list endpoint is a denial-of-service against your own dashboard,
+#: and `/applications` had no cap at all.
+MAX_PAGE_SIZE = 200
+
+
+class Page(BaseModel, Generic[T]):
+    """One window onto a list, plus the size of the list it came from.
+
+    ``total`` is the point. Every list endpoint used to return a bare array,
+    which cannot answer "is there more?" — a page of 25 out of 25 and a page of
+    25 out of 900 look identical on the wire, so the UI either lies about being
+    complete or has to guess from `len(items) == limit` (wrong exactly when the
+    total is an even multiple). It is counted with the same filters as the
+    window, so it is the total of *this* query, not of the table.
+    """
+
+    items: list[T]
+    total: int
+    limit: int
+    offset: int
 
 
 class JobOut(BaseModel):

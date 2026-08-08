@@ -61,6 +61,28 @@ export interface Stats {
   outcomes: OutcomeStats;
 }
 
+/**
+ * One window onto a list, plus the size of the list it came from.
+ *
+ * `total` is the reason this wrapper exists. Every list endpoint used to answer
+ * with a bare array, which cannot say whether there is more: 25 rows out of 25
+ * and 25 rows out of 900 are the same array on the wire, so a pager either
+ * claims to be complete or guesses from `items.length === limit` — wrong
+ * exactly when the total is an even multiple of the page size.
+ */
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** The window half of a list request. */
+export interface PageQuery {
+  limit?: number;
+  offset?: number;
+}
+
 export interface JobsQuery {
   source?: string;
   status?: JobStatus;

@@ -11,25 +11,33 @@ import type { CvVersion } from "@/types";
  */
 export function VersionHistory({
   versions,
+  total,
   current,
   loading,
   busy,
   onRollback,
   onCompare,
+  pager,
 }: {
+  /** The loaded page, not the whole history. */
   versions: CvVersion[] | null;
+  /** How many versions exist. Versions are append-only and numbered from 1
+   *  with no gaps, so this is also the newest version number — which is what
+   *  lets the compare row offer every version while the list shows a page. */
+  total: number;
   current: number;
   loading: boolean;
   busy: boolean;
   onRollback: (version: number) => void;
   onCompare: (base: number, target: number) => void;
+  pager?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>History</CardTitle>
         <span className="font-mono text-[11px] text-ink-muted">
-          {versions?.length ?? 0} version{versions?.length === 1 ? "" : "s"}
+          {total} version{total === 1 ? "" : "s"}
         </span>
       </CardHeader>
       <CardBody className="pt-3">
@@ -41,7 +49,7 @@ export function VersionHistory({
         ) : !versions?.length ? (
           <p className="text-sm text-ink-muted">No versions yet.</p>
         ) : (
-          <ol className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
+          <ol className="flex flex-col gap-1 pr-1">
             {versions.map((v) => {
               const isCurrent = v.version === current;
               const Icon = v.author === "agent" ? Bot : User;
@@ -86,7 +94,11 @@ export function VersionHistory({
           </ol>
         )}
 
-        {(versions?.length ?? 0) > 1 && <CompareRow versions={versions!} onCompare={onCompare} />}
+        {pager}
+
+        {total > 1 && versions && (
+          <CompareRow versions={versions} total={total} onCompare={onCompare} />
+        )}
       </CardBody>
     </Card>
   );
@@ -99,21 +111,31 @@ export function VersionHistory({
  */
 function CompareRow({
   versions,
+  total,
   onCompare,
 }: {
   versions: CvVersion[];
+  total: number;
   onCompare: (base: number, target: number) => void;
 }) {
   // null = "follow the newest versions"; an explicit pick overrides it.
   const [base, setBase] = useState<number | null>(null);
   const [target, setTarget] = useState<number | null>(null);
-  const effTarget = target ?? versions[0].version;
-  const effBase = base ?? versions[1].version;
+  const effTarget = target ?? total;
+  const effBase = base ?? total - 1;
 
-  const options = versions.map((v) => (
-    <option key={v.version} value={v.version}>
-      v{v.version}
-      {v.author === "agent" ? " · agent" : ""}
+  // Built from the *range*, not from the loaded page. Versions are numbered
+  // 1..total with no gaps and are never deleted, so the numbers are known
+  // without fetching the rows — and "diff v1 against v40" has to stay possible
+  // when the list below is showing v31–v40. Only the "· agent" annotation
+  // needs a loaded row, so it appears for the page you can see and is simply
+  // absent for the rest, which costs nothing: the diff itself says who wrote
+  // what.
+  const authors = new Map(versions.map((v) => [v.version, v.author]));
+  const options = Array.from({ length: total }, (_, i) => total - i).map((n) => (
+    <option key={n} value={n}>
+      v{n}
+      {authors.get(n) === "agent" ? " · agent" : ""}
     </option>
   ));
 

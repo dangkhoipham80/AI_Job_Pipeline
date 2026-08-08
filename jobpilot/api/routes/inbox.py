@@ -16,9 +16,15 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from jobpilot.api.deps import get_db, require_token
-from jobpilot.api.schemas import ApplicationOut, InboxSettingsOut, SuggestionOut, TaskOut
+from jobpilot.api.paging import LimitParam, OffsetParam, page_list
+from jobpilot.api.schemas import ApplicationOut, InboxSettingsOut, Page, SuggestionOut, TaskOut
 from jobpilot.api.ws import manager
-from jobpilot.apply.inbox import accept_suggestion, dismiss_suggestion, pending_suggestions
+from jobpilot.apply.inbox import (
+    accept_suggestion,
+    dismiss_suggestion,
+    pending_count,
+    pending_suggestions,
+)
 from jobpilot.apply.outcome import OutcomeRefused
 from jobpilot import llm
 from jobpilot.config import get_config
@@ -63,17 +69,21 @@ def settings() -> InboxSettingsOut:
     )
 
 
-@router.get("/suggestions", response_model=list[SuggestionOut])
-def list_suggestions(db: Session = Depends(get_db), limit: int = 50) -> list[SuggestionOut]:
+@router.get("/suggestions", response_model=Page[SuggestionOut])
+def list_suggestions(
+    db: Session = Depends(get_db),
+    limit: int = LimitParam(),
+    offset: int = OffsetParam(),
+) -> dict:
     """Replies waiting for your decision, newest mail first."""
     from jobpilot.store.models import Application
 
     out = []
-    for row in pending_suggestions(db, limit=limit):
+    for row in pending_suggestions(db, limit=limit, offset=offset):
         app = db.get(Application, row.application_id)
         job = db.get(Job, app.job_id) if app else None
         out.append(SuggestionOut.from_row(row, job))
-    return out
+    return page_list(out, pending_count(db), limit, offset)
 
 
 @router.post("/suggestions/{suggestion_id}/accept", response_model=ApplicationOut)

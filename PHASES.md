@@ -586,3 +586,99 @@ cùng cổng), nên request rơi vào bản cũ. `Get-CimInstance Win32_Process`
 mồ côi lẫn reloader mới. Curl API trả kết quả cũ trong khi `python -c` cùng module trả kết quả
 mới ⇒ nghi ngay có hai process, đừng nghi cache.
 
+---
+
+## Phân trang ở backend (theo yêu cầu)
+
+Yêu cầu: *"Các trang, các list đều chưa phân trang -> làm ở BE phân trang (cho
+option chọn số item/page)."* Bảy list endpoint, tất cả đang trả **mảng JSON trần**.
+
+**Mảng trần không trả lời được câu hỏi quan trọng nhất.** 25 dòng trên tổng 25 và
+25 dòng trên tổng 900 là **cùng một mảng** trên đường truyền. Không có `total` thì
+pager hoặc nói dối là đã hết, hoặc đoán bằng `items.length === limit` — sai đúng
+vào lúc tổng là bội số của page size. Nên mọi list giờ trả `Page{items, total,
+limit, offset}` (`api/schemas.Page`, generic Pydantic). Đây là **breaking change**
+với mọi client: Slack, frontend, và 26 test.
+
+**Bẫy thật của phân trang không phải `LIMIT`, mà là thứ tự.** `LIMIT/OFFSET` trên
+một `ORDER BY` có **tie** là bug im lặng, không phải bug thẩm mỹ: các dòng bằng
+nhau ở khoá sắp xếp có thể ra theo thứ tự khác nhau giữa truy vấn trang 1 và trang
+2, nên một job hiện **hai lần** còn một job **không bao giờ** hiện. Không có
+exception nào, chỉ là bạn không thấy một tin tuyển dụng. Trong corpus này điều đó
+gần như chắc chắn xảy ra: `posted_at` **null** với mọi job từ LinkedIn alert và
+giống hệt nhau trong cả một mẻ crawl. Nên mọi thứ tự giờ kết thúc bằng một cột
+**unique** (`Job.id`, `Application.id`, `InboxSuggestion.id`, `CvVersion.version`),
+và `paging.page_query` **từ chối** một statement không có `ORDER BY` — thà nổ còn
+hơn trả về một trang chỉ đúng do may. Test `test_paging.py` seed 12 job **cố ý
+bằng nhau ở mọi khoá** rồi đi hết 3 trang và đếm: 12 dòng, không lặp, không thiếu.
+Verify thật trên 83 job qua browser: trang 1 và trang 2 giao nhau **0**.
+
+**`total` phải đếm cùng bộ lọc với dòng.** Đếm trên cả bảng trong khi dòng thì đã
+lọc ⇒ UI mời người dùng sang trang 4..9 rồi trả về trống. `total_for()` đếm bằng
+subquery **của chính statement đã lọc**, không dựng lại `where` bằng tay — dựng
+lại là cách `total` trôi khỏi thứ nó đếm khi ai đó thêm filter vào một chỗ mà quên
+chỗ kia.
+
+**Board Applications: bốn cột, bốn cửa sổ.** Trước đây trang này lấy *toàn bộ*
+application rồi `filter()` trong browser, tức bốn cột **dùng chung một page size**.
+Một chuỗi rejection sẽ chiếm hết cửa sổ và **đẩy offer ra khỏi response** — và một
+cột "Offers" trống vì `limit` trông y hệt một cột "Offers" trống vì chưa ai mời
+bạn. Giờ mỗi cột tự hỏi `?result=<stage>` với offset riêng, và số ở đầu cột là
+**total thật của stage đó**. Một page-size cho cả board (dropdown ở góc), vì bốn
+dropdown trong bốn cột hẹp là nhiều chrome hơn board.
+
+**Bug thật mà phân trang *tạo ra*, và đã sửa cùng lúc:**
+- `slack/events.py` tìm application của một job bằng `[a for a in
+  client.applications() if a["job_id"] == job_id]` — quét cả board. Đang lãng phí,
+  và **thành sai** ngay khi endpoint có page size: dòng nó cần có thể nằm ở trang
+  2, bot báo "không có application" cho chính job vừa nộp. Thêm filter `job_id=`
+  phía server + `client.application_for()`.
+- `queue.active()` gọi `self.list(kind=...)` với `limit=50` mặc định. Nó là
+  **guard** chống chạy hai crawl cùng lúc, không phải một danh sách để hiển thị —
+  một task queued rơi khỏi cửa sổ sẽ đọc thành "không có gì đang chạy". Giờ
+  `limit=None`. Trang Runs cũng hỏi riêng một request cho việc gate nút Crawl,
+  không dùng trang đang xem.
+- `/applications` **không hề có cap** trên `limit` (`limit: int = 200` trần, không
+  `Query(le=...)`). Một list endpoint không chặn trên là DoS vào chính dashboard
+  của mình. Giờ mọi endpoint dùng chung `MAX_PAGE_SIZE=200`, vượt là **422** chứ
+  không phải một thành công chậm.
+
+**Ba chỗ UI mà phân trang làm hỏng nếu không để ý:**
+1. **Đổi filter mà giữ nguyên page.** Thu hẹp tìm kiếm từ 300 hit xuống 4 rồi vẫn
+   đứng ở trang 7 = bảng trống, không manh mối. `usePaging.reset()` gọi khi
+   *filter* đổi (không phải khi data refresh).
+2. **List co lại dưới chân mình.** Một WS push hay một tab khác xoá dòng có thể
+   cắt list ngắn hơn trang đang xem. `useClampPage` kéo về trang cuối hợp lệ —
+   không có nó thì màn hình trống với nút "previous" vẫn chạy, về mặt kỹ thuật cứu
+   được nhưng đọc như mất dữ liệu.
+3. **Dropdown so sánh version trong CV Studio.** Nó liệt kê version để diff; nếu
+   nuôi bằng *trang* đang tải thì không còn diff được v1 với v40. Version là
+   append-only, đánh số 1..N **không có lỗ**, nên option dựng từ **dải số** chứ
+   không từ dòng đã tải — chỉ nhãn "· agent" là cần dòng, và nó vắng mặt ở version
+   ngoài trang, thứ chẳng mất gì vì bản diff tự nói ai viết.
+
+**Nhớ *kích thước*, không nhớ *vị trí*.** `usePaging` lưu page size vào
+localStorage theo từng list (`jobpilot-page-size:<name>`); `page` thì luôn về 0.
+Bạn đang ở đâu trong một list là chuyện của một lần xem; bạn thích nhìn bao nhiêu
+dòng một lúc là một preference. Per-list chứ không global: bảng Jobs muốn 100 còn
+lịch sử Runs muốn 10. Giá trị đọc ra được **validate lại theo `PAGE_SIZES`** —
+một giá trị cũ hoặc bị sửa tay sẽ đi thẳng vào query mà server trả 422.
+
+**`/applications/{id}/events` cố ý KHÔNG phân trang.** Nó là lịch sử của *một* đơn,
+dài bằng số lần bạn bấm nút, và một timeline 3 dòng có pager là chrome thuần tuý.
+Đây là endpoint list duy nhất còn trả mảng trần — một sự thiếu nhất quán có chủ ý,
+ghi ở đây để lần sau không ai "sửa" nó.
+
+**Verify:** 690 test (10 test mới: `test_paging.py` + per-column board + Slack
+`job_id`); `tsc` sạch. Chạy thật qua browser trên Postgres thật — Jobs 83 dòng đi
+sang trang 2 giao **0**, đổi size về trang 1, size **sống qua reload**; Runs 18;
+CV Studio 11 version. Board Applications trong DB thật đang **rỗng**, nên nó được
+chụp bằng một **API + vite tạm trên SQLite scratch** (47 đơn: 7/14/23/3) rồi xoá
+sạch: cột ≤ page size **không hiện pager**, "Submitted" đi hết 3 trang cho **23
+card phân biệt, không lặp không thiếu**. Ảnh light + dark, console sạch.
+
+**Bẫy môi trường (lần thứ hai trong ngày):** `--reload` "không ăn" vì lần restart
+trước để lại một **worker mồ côi vẫn giữ cổng 8000** — Windows cho hai process
+bind cùng một cổng, nên request rơi vào bản cũ. Dấu hiệu nhận ra: `curl` API trả
+kết quả cũ trong khi `python -c` cùng module trả kết quả mới ⇒ nghi hai process,
+đừng nghi cache.

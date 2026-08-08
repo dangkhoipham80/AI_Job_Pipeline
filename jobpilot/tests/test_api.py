@@ -63,13 +63,15 @@ def test_jobs_requires_token(client):
 def test_list_jobs(client):
     r = client.get("/jobs", headers=_auth(client))
     assert r.status_code == 200
-    ids = {j["id"] for j in r.json()}
-    assert ids == {"itviec:1", "topcv:2"}
+    body = r.json()
+    assert {j["id"] for j in body["items"]} == {"itviec:1", "topcv:2"}
+    # The envelope reports the size of the whole result, not of the window.
+    assert body["total"] == 2 and body["offset"] == 0
 
 
 def test_filter_jobs_by_source(client):
     r = client.get("/jobs", params={"source": "itviec"}, headers=_auth(client))
-    assert [j["id"] for j in r.json()] == ["itviec:1"]
+    assert [j["id"] for j in r.json()["items"]] == ["itviec:1"]
 
 
 def test_get_job_detail_and_404(client):
@@ -112,7 +114,7 @@ def test_job_detail_includes_payload(client, session_factory):
 
 def test_search_jobs_by_title(client):
     r = client.get("/jobs", params={"q": "java"}, headers=_auth(client))
-    assert [j["id"] for j in r.json()] == ["topcv:2"]  # "Java Dev" matches, "Backend" doesn't
+    assert [j["id"] for j in r.json()["items"]] == ["topcv:2"]  # "Java Dev" matches, not "Backend"
 
 
 def test_stats_extra_fields(client):
@@ -178,11 +180,13 @@ def test_filter_jobs_by_run_id(client, session_factory):
         s.commit()
 
     r = client.get("/jobs", params={"run_id": run_id}, headers=_auth(client))
-    assert [j["id"] for j in r.json()] == ["linkedin:9"]
-    assert r.json()[0]["run_id"] == run_id
+    assert [j["id"] for j in r.json()["items"]] == ["linkedin:9"]
+    assert r.json()["items"][0]["run_id"] == run_id
+    # `total` is counted with the same filter, not over the table.
+    assert r.json()["total"] == 1
 
     # The seeded jobs belong to no run, so they must not leak into the view.
-    assert client.get("/jobs", params={"run_id": run_id + 999}, headers=_auth(client)).json() == []
+    assert client.get("/jobs", params={"run_id": run_id + 999}, headers=_auth(client)).json()["items"] == []
 
 
 def test_filter_jobs_by_crawled_after(client, session_factory):
@@ -208,7 +212,7 @@ def test_filter_jobs_by_crawled_after(client, session_factory):
     cutoff = (now - timedelta(days=1)).isoformat()
     ids = {
         j["id"]
-        for j in client.get("/jobs", params={"crawled_after": cutoff}, headers=_auth(client)).json()
+        for j in client.get("/jobs", params={"crawled_after": cutoff}, headers=_auth(client)).json()["items"]
     }
     assert "itviec:new" in ids
     assert "itviec:old" not in ids
@@ -230,5 +234,5 @@ def test_runs_report_their_job_count(client, session_factory):
         )
         s.commit()
 
-    runs = client.get("/runs", headers=_auth(client)).json()
+    runs = client.get("/runs", headers=_auth(client)).json()["items"]
     assert runs[0]["job_count"] == 3

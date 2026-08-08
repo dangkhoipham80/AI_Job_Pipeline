@@ -244,16 +244,21 @@ class TaskQueue:
         with self._lock:
             return self._tasks.get(task_id)
 
-    def list(self, limit: int = 50, kind: str | None = None) -> list[Task]:
-        """Newest first."""
+    def list(self, limit: int | None = 50, kind: str | None = None) -> list[Task]:
+        """Newest first. ``limit=None`` returns the whole retained history —
+        what a caller counting rows, or guarding on *any* active task, needs."""
         with self._lock:
             tasks = list(self._tasks.values())
         if kind:
             tasks = [t for t in tasks if t.kind == kind]
-        return list(reversed(tasks))[:limit]
+        tasks = list(reversed(tasks))
+        return tasks if limit is None else tasks[:limit]
 
     def active(self, kind: str | None = None, job_id: str | None = None) -> list[Task]:
-        tasks = [t for t in self.list(kind=kind) if t.status in (QUEUED, RUNNING)]
+        # limit=None: this is a guard, not a display. Asking for the newest 50
+        # would let a queued task fall out of the window and read as "nothing
+        # running" — the exact answer that lets a second task race the first.
+        tasks = [t for t in self.list(limit=None, kind=kind) if t.status in (QUEUED, RUNNING)]
         return [t for t in tasks if t.job_id == job_id] if job_id else tasks
 
     def shutdown(self, wait: bool = False) -> None:

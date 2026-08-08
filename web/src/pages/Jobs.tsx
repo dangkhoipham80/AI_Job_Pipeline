@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Check, ExternalLink, History, Search, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { useClampPage, usePaging } from "@/hooks/usePaging";
 import type { Job, JobStatus, JobsQuery } from "@/types";
 import { relativeTime, titleCase } from "@/lib/format";
 import { StatusPill } from "@/components/StatusPill";
@@ -11,6 +12,7 @@ import { FreshBeacon } from "@/components/FreshBeacon";
 import { sourceColor } from "@/components/charts/palette";
 import { Button, Card, Input, Select, Skeleton } from "@/components/ui";
 import { AddJobForm } from "@/components/AddJobForm";
+import { Pagination } from "@/components/Pagination";
 
 const EARLY = new Set<JobStatus>(["DISCOVERED", "SHORTLISTED", "SKIPPED"]);
 
@@ -56,6 +58,9 @@ export function Jobs({ version }: { version: number }) {
   const statuses = Object.keys(stats?.by_status ?? {}) as JobStatus[];
   if (status && !statuses.includes(status as JobStatus)) statuses.unshift(status as JobStatus);
 
+  const paging = usePaging("jobs");
+  const { size, offset, page, setPage, reset } = paging;
+
   const query: JobsQuery = useMemo(() => {
     const hours = WINDOWS.find((w) => w.key === win)?.hours ?? null;
     return {
@@ -68,11 +73,20 @@ export function Jobs({ version }: { version: number }) {
       crawled_after: hours ? new Date(Date.now() - hours * 3600 * 1000).toISOString() : undefined,
       // Filtering by crawl time only reads right if the list is sorted that way.
       order: win || runId ? "crawled" : "posted",
-      limit: 200,
+      limit: size,
+      offset,
     };
-  }, [q, source, level, status, fresh, win, runId]);
+  }, [q, source, level, status, fresh, win, runId, size, offset]);
 
-  const { data: jobs, loading, error, refetch } = useApi(() => api.jobs(query), [query, version]);
+  // A changed filter means a different list, so page 7 of the old one is not a
+  // place in the new one. Without this, narrowing a search from 300 hits to 4
+  // lands on an empty table with no clue that the rows are on page 1.
+  const filterKey = JSON.stringify([q, source, level, status, fresh, win, runId]);
+  useEffect(reset, [filterKey, reset]);
+
+  const { data, loading, error, refetch } = useApi(() => api.jobs(query), [query, version]);
+  const jobs = data?.items;
+  useClampPage(data?.total, paging);
 
   async function act(id: string, action: "shortlist" | "skip") {
     setPending(id);
@@ -92,7 +106,11 @@ export function Jobs({ version }: { version: number }) {
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Jobs</h1>
           <p className="mt-0.5 text-sm text-ink-muted">
-            {jobs ? `${jobs.length} shown` : "Loading…"} ·{" "}
+            {/* Everything the filters matched, not this page. `jobs.length`
+                used to be the same number; now it would say "25 matched" for a
+                search with 83 hits, and the pager below already reports the
+                window. */}
+            {data ? `${data.total} matching` : "Loading…"} ·{" "}
             {query.order === "crawled" ? "most recently crawled first" : "newest postings first"}
           </p>
         </div>
@@ -213,6 +231,15 @@ export function Jobs({ version }: { version: number }) {
               ))}
             </tbody>
           </table>
+          <Pagination
+            className="px-4 pb-3"
+            page={page}
+            size={size}
+            total={data?.total ?? 0}
+            onPage={setPage}
+            onSize={paging.setSize}
+            noun="jobs"
+          />
         </Card>
       )}
     </div>

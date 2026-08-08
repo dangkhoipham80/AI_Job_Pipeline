@@ -744,16 +744,33 @@ def dismiss_suggestion(db, suggestion_id: int):
     return found
 
 
-def pending_suggestions(db, limit: int = 50) -> list:
-    """What is waiting for your decision, newest mail first."""
+def _pending_stmt():
     from sqlalchemy import select
 
     from jobpilot.store.models import InboxSuggestion
 
-    stmt = (
+    return (
         select(InboxSuggestion)
         .where(InboxSuggestion.status == PENDING)
+        # `id` last keeps the order total. `mail_date` is null for anything the
+        # parser couldn't date, and a sync's worth of nulls tying with each
+        # other is exactly where LIMIT/OFFSET starts repeating one row and
+        # skipping another.
         .order_by(InboxSuggestion.mail_date.desc().nullslast(), InboxSuggestion.id.desc())
-        .limit(limit)
     )
+
+
+def pending_suggestions(db, limit: int | None = 50, offset: int = 0) -> list:
+    """What is waiting for your decision, newest mail first."""
+    stmt = _pending_stmt().offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.scalars(stmt))
+
+
+def pending_count(db) -> int:
+    """How many suggestions are waiting, ignoring any page window."""
+    from sqlalchemy import func, select
+
+    stmt = _pending_stmt().order_by(None).subquery()
+    return db.scalar(select(func.count()).select_from(stmt)) or 0

@@ -83,12 +83,25 @@ class JobPilotClient:
 
         return f"/jobs/{quote(job_id, safe=':')}"
 
+    def _items(self, path: str, **kwargs) -> list[dict]:
+        """One page of a list endpoint, unwrapped to its rows.
+
+        The list endpoints answer with a ``Page`` envelope. Slack posts a
+        digest and looks up single rows, so it wants the rows; the ``total``
+        would only be useful for a pager, and Slack has none. Unwrapping here
+        rather than at each call site keeps the envelope in one place — and
+        stops a caller from iterating the envelope's keys and getting the
+        strings ``"items"``, ``"total"``, ``"limit"``, ``"offset"``.
+        """
+        page = self._request("GET", path, **kwargs)
+        return page.get("items", []) if isinstance(page, dict) else (page or [])
+
     # ----------------------------------------------------------------- #
     def health(self) -> dict:
         return self._request("GET", "/health")
 
     def jobs(self, **query) -> list[dict]:
-        return self._request("GET", "/jobs", params={k: v for k, v in query.items() if v})
+        return self._items("/jobs", params={k: v for k, v in query.items() if v})
 
     def job(self, job_id: str) -> dict:
         return self._request("GET", self._job_path(job_id))
@@ -136,8 +149,21 @@ class JobPilotClient:
             "POST", f"{self._job_path(job_id)}/report-failure", json={"reason": reason}
         )
 
-    def applications(self, result: str | None = None) -> list[dict]:
-        return self._request("GET", "/applications", params={"result": result} if result else None)
+    def applications(self, result: str | None = None, **query) -> list[dict]:
+        params = {k: v for k, v in {"result": result, **query}.items() if v}
+        return self._items("/applications", params=params or None)
+
+    def application_for(self, job_id: str) -> dict | None:
+        """The application for one job, or None.
+
+        Asks the server to do the filtering. The previous version pulled the
+        whole board and scanned it in Python, which was already wasteful and
+        became *wrong* once the endpoint had a page size: the row Slack wanted
+        could sit on page 2 and the bot would report "no application" for a job
+        it had just applied to.
+        """
+        rows = self.applications(job_id=job_id, limit=1)
+        return rows[0] if rows else None
 
     def apply_settings(self) -> dict:
         return self._request("GET", "/applications/settings")

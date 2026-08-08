@@ -121,26 +121,46 @@ def describe(stage: str | None) -> str:
 # --------------------------------------------------------------------------- #
 # Persistence — the thin layer over the two columns
 # --------------------------------------------------------------------------- #
-def due_applications(db, *, now: datetime | None = None, limit: int = 50) -> list:
+def _due_stmt(now: datetime):
+    from sqlalchemy import select
+
+    from jobpilot.store.models import Application
+
+    return (
+        select(Application)
+        .where(Application.next_followup_at.is_not(None))
+        .where(Application.next_followup_at <= now)
+        # `id` last so the order is total: several applications scheduled by the
+        # same dispatch share a `next_followup_at` to the microsecond, and ties
+        # in an unstable order make LIMIT/OFFSET repeat one row and skip another.
+        .order_by(Application.next_followup_at.asc(), Application.id.asc())
+    )
+
+
+def due_applications(
+    db, *, now: datetime | None = None, limit: int | None = 50, offset: int = 0
+) -> list:
     """Applications whose next follow-up has come due, oldest first.
 
     Only a query. Deliberately nothing is sent from here: a follow-up is a
     message to a person deciding about you, and mail that leaves the machine
     without you seeing it is what principle 2 forbids.
+
+    ``limit=None`` means every due application — the caller that needs a count
+    rather than a page.
     """
-    from sqlalchemy import select
-
-    from jobpilot.store.models import Application
-
-    now = now or vn_now()
-    stmt = (
-        select(Application)
-        .where(Application.next_followup_at.is_not(None))
-        .where(Application.next_followup_at <= now)
-        .order_by(Application.next_followup_at.asc())
-        .limit(limit)
-    )
+    stmt = _due_stmt(now or vn_now()).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.scalars(stmt))
+
+
+def due_count(db, *, now: datetime | None = None) -> int:
+    """How many applications are due, ignoring any page window."""
+    from sqlalchemy import func, select
+
+    stmt = _due_stmt(now or vn_now()).order_by(None)
+    return db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
 
 
 def mark_followed_up(db, application_id: int, *, now: datetime | None = None):

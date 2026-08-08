@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { useClampPage, usePaging } from "@/hooks/usePaging";
+import { Pagination } from "@/components/Pagination";
 import { clockTime, relativeTime } from "@/lib/format";
 import { Card, CardBody, CardHeader, CardTitle, Skeleton } from "@/components/ui";
 import { CrawlSetup } from "@/components/CrawlSetup";
@@ -31,11 +33,29 @@ const OUTCOME: Record<string, string> = {
 };
 
 export function Runs({ version }: { version: number }) {
-  const tasks = useApi(() => api.tasks(), [version]);
-  const runs = useApi(() => api.runs(), [version]);
+  const taskPaging = usePaging("tasks");
+  const tasks = useApi(
+    () => api.tasks(undefined, { limit: taskPaging.size, offset: taskPaging.offset }),
+    [version, taskPaging.size, taskPaging.offset],
+  );
+  useClampPage(tasks.data?.total, taskPaging);
+
+  const runPaging = usePaging("runs");
+  const runs = useApi(
+    () => api.runs(undefined, { limit: runPaging.size, offset: runPaging.offset }),
+    [version, runPaging.size, runPaging.offset],
+  );
+  useClampPage(runs.data?.total, runPaging);
+
   const [busy, setBusy] = useState(false);
 
-  const active = (tasks.data ?? []).filter((t) => t.status === "queued" || t.status === "running");
+  // Gates the Crawl button, so it must see every queued task — not just the
+  // ones on the page you happen to be looking at. Its own request, unpaged
+  // apart from the cap, because a guard that can miss is not a guard.
+  const activeTasks = useApi(() => api.tasks(undefined, { limit: 200 }), [version]);
+  const active = (activeTasks.data?.items ?? []).filter(
+    (t) => t.status === "queued" || t.status === "running",
+  );
 
   // Errors surface inside the setup card, next to the choices that caused them.
   const crawl = useCallback(
@@ -71,22 +91,33 @@ export function Runs({ version }: { version: number }) {
         <CardHeader>
           <CardTitle>Queue</CardTitle>
           <span className="font-mono text-[11px] text-ink-muted">
-            {tasks.data?.length ?? 0} recent
+            {tasks.data?.total ?? 0} recent
           </span>
         </CardHeader>
         <CardBody className="pt-3">
           {tasks.loading && !tasks.data ? (
             <Skeleton className="h-20" />
-          ) : !tasks.data?.length ? (
+          ) : !tasks.data?.total ? (
             <p className="text-sm text-ink-muted">
               Nothing queued. Hit “Crawl now” to look for jobs.
             </p>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {tasks.data.map((task) => (
-                <TaskRow key={task.id} task={task} />
-              ))}
-            </ul>
+            <>
+              <ul className="flex flex-col gap-2">
+                {tasks.data.items.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </ul>
+              <Pagination
+                className="mt-3"
+                page={taskPaging.page}
+                size={taskPaging.size}
+                total={tasks.data.total}
+                onPage={taskPaging.setPage}
+                onSize={taskPaging.setSize}
+                noun="tasks"
+              />
+            </>
           )}
         </CardBody>
       </Card>
@@ -94,19 +125,30 @@ export function Runs({ version }: { version: number }) {
       <Card>
         <CardHeader>
           <CardTitle>History</CardTitle>
-          <span className="font-mono text-[11px] text-ink-muted">{runs.data?.length ?? 0} runs</span>
+          <span className="font-mono text-[11px] text-ink-muted">{runs.data?.total ?? 0} runs</span>
         </CardHeader>
         <CardBody className="pt-3">
           {runs.loading && !runs.data ? (
             <Skeleton className="h-24" />
-          ) : !runs.data?.length ? (
+          ) : !runs.data?.total ? (
             <p className="text-sm text-ink-muted">No runs recorded yet.</p>
           ) : (
-            <ul className="flex flex-col divide-y">
-              {runs.data.map((run) => (
-                <RunRow key={run.id} run={run} />
-              ))}
-            </ul>
+            <>
+              <ul className="flex flex-col divide-y">
+                {runs.data.items.map((run) => (
+                  <RunRow key={run.id} run={run} />
+                ))}
+              </ul>
+              <Pagination
+                className="mt-3"
+                page={runPaging.page}
+                size={runPaging.size}
+                total={runs.data.total}
+                onPage={runPaging.setPage}
+                onSize={runPaging.setSize}
+                noun="runs"
+              />
+            </>
           )}
         </CardBody>
       </Card>

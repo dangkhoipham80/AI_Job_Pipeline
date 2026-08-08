@@ -303,6 +303,26 @@ def test_apply_done_becomes_an_apply_message(client):
     assert B.check_blocks(note.blocks) == []
 
 
+def test_the_bot_asks_the_server_for_one_application_not_the_whole_board(client):
+    """It used to pull `/applications` and scan it in Python for the matching
+    `job_id`. That was merely wasteful until the endpoint grew a page size —
+    then the row it wanted could sit on page 2, and the bot would report "no
+    application" for a job it had just applied to, filling the card with a
+    generic fallback instead of the real outcome."""
+    client.shortlist("itviec:1")
+    tailor(client, "itviec:1")
+    client.approve("itviec:1")
+    apply_(client, "itviec:1")
+
+    row = client.application_for("itviec:1")
+    assert row is not None and row["job_id"] == "itviec:1"
+    assert client.application_for("itviec:does-not-exist") is None
+
+    # The filter is the server's job: asking for one job must not depend on
+    # that job landing inside the default window.
+    assert client.applications(job_id="itviec:1", limit=1) == [row]
+
+
 def test_routine_transitions_stay_quiet(client):
     """Mirroring every status change would make the channel unusable."""
     for status in ("DISCOVERED", "SHORTLISTED", "TAILORING", "REVIEW", "APPROVED", "SUBMITTING"):
