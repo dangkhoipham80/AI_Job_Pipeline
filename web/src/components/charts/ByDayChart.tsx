@@ -14,7 +14,9 @@ export function ByDayChart({ data }: { data: Record<string, number> }) {
 
   return (
     <ResponsiveContainer width="100%" height={180}>
-      <BarChart data={rows} margin={{ left: -18, right: 8, top: 8, bottom: 4 }}>
+      {/* left: -18 pulled the Y tick labels past the plot edge — "50" rendered
+          as "0". Trim the axis width instead of shifting it off-canvas. */}
+      <BarChart data={rows} margin={{ left: -8, right: 8, top: 8, bottom: 4 }}>
         <CartesianGrid vertical={false} stroke={gridColor()} strokeDasharray="0" />
         <XAxis
           dataKey="day"
@@ -27,7 +29,7 @@ export function ByDayChart({ data }: { data: Record<string, number> }) {
         <YAxis
           axisLine={false}
           tickLine={false}
-          width={36}
+          width={30}
           allowDecimals={false}
           tick={{ fill: axisColor(), fontSize: 11 }}
         />

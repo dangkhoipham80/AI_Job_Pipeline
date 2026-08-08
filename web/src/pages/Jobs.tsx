@@ -232,7 +232,10 @@ function Row({
     !!job.posted_at && Date.now() - new Date(job.posted_at).getTime() < 48 * 3600 * 1000;
   return (
     <tr className="border-b last:border-0 hover:bg-surface-2/60">
-      <td className="max-w-[320px] px-4 py-3">
+      {/* `w-full max-w-0` lets the role column absorb whatever the fixed-width
+          columns leave over, while still giving `truncate` a width to clamp to —
+          a fixed `max-w-[320px]` cut titles short even on a wide screen. */}
+      <td className="w-full max-w-0 px-4 py-3">
         <Link to={`/jobs/${encodeURIComponent(job.id)}`} className="group block">
           <div className="flex items-center gap-1.5">
             {isFresh && <FreshBeacon />}
