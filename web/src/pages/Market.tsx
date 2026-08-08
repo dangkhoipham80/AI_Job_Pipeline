@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import {
   Bar,
@@ -188,6 +188,29 @@ function Section({
 export function Market({ version }: { version: number }) {
   const { data, loading, error } = useApi(() => api.market(), [version]);
   const [active, setActive] = useState("overview");
+
+  // Follow the scroll, not just the clicks. Highlighting only on click leaves
+  // "Skills" lit while you are reading "Salary", which makes the nav actively
+  // misleading on a page this tall — worse than having no highlight at all.
+  useEffect(() => {
+    if (!data) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (visible) setActive(visible.target.id);
+      },
+      // Top third of the viewport: a section counts as "the one you're reading"
+      // when its heading is near the top, not when it first peeks into view.
+      { rootMargin: "-80px 0px -66% 0px" },
+    );
+    for (const s of SECTIONS) {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [data]);
 
   const salarySummary = useMemo(
     () => data?.salary.rows.find((r: FacetRow) => r.key === "_summary"),

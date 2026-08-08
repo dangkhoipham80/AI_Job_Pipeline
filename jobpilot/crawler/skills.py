@@ -37,7 +37,19 @@ _ROLE_RE = re.compile(
 
 #: An industry the employer operates in, which several boards also file as a
 #: "skill": "IT Services and IT Consulting", "Financial Services".
-_INDUSTRY_RE = re.compile(r"services|consulting|industry|phần mềm|outsourcing", re.I)
+#:
+#: The bare word ``services`` is not enough, and getting that wrong cost a real
+#: entry: it is a substring of **microservices**, so one of the most common tags
+#: on the market was dropped from every ranking — silently, with the chart still
+#: rendering perfectly and all 658 tests green. Same shape as ``"remote" in
+#: "remote debugging"`` and ``intern`` inside ``internal``, both of which this
+#: repo has already paid for. So the industry sense is matched as a *phrase*,
+#: which also lets "web services" survive as the technology it is.
+_INDUSTRY_RE = re.compile(
+    r"\b(?:it|financial|professional|business|consumer|software development)\s+services\b"
+    r"|consulting|\bindustry\b|phần mềm|outsourcing",
+    re.I,
+)
 
 #: Places. A tag strip that includes "India" is describing the office, not the
 #: work. Small and unapologetically incomplete — it removes the cases actually

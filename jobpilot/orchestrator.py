@@ -437,9 +437,14 @@ def crawl_body(
             )
 
         resolved = query or default_query(cfg)
-        progress(f"crawling {', '.join(s.source for s in scrapers)} for {resolved!r}")
+        progress(f"crawling {len(scrapers)} source(s) for {resolved!r}")
         with session_scope() as db:
-            report = run_crawl(scrapers, cfg, db, query=resolved, limit=limit)
+            # Hand the reporter down so each site announces itself. Without it
+            # the task printed one line for the whole batch and then nothing for
+            # minutes, which is indistinguishable from being stuck.
+            report = run_crawl(
+                scrapers, cfg, db, query=resolved, limit=limit, on_progress=progress
+            )
 
             sites = [
                 {

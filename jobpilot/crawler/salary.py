@@ -68,11 +68,13 @@ class Salary:
 
     @property
     def usd_month(self) -> float | None:
-        """Midpoint as US dollars per month, for putting ads on one axis.
+        """A representative figure in US dollars per month, for one shared axis.
 
-        ``None`` when neither bound is known. Uses whichever bound exists rather
-        than refusing a one-sided range — "up to $3000" is real information about
-        the top of a market even without a floor.
+        The midpoint when both bounds are known, and the single known bound when
+        only one is — *not* a midpoint against an imagined zero floor, which
+        would halve every "up to $3000" ad and drag the corpus median with it.
+
+        ``None`` when neither bound is known.
         """
         known = [v for v in (self.min, self.max) if v is not None]
         if not known:
