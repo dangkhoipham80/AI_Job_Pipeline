@@ -191,7 +191,7 @@ def test_compile_returns_page_count(client, monkeypatch, tmp_path):
         pages = 1
         pdf = tmp_path / "cv.pdf"  # never written → the text layer is unreadable
 
-    monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", lambda doc, scope: FakeResult())
+    monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", lambda doc, scope, override=None: FakeResult())
     r = client.post("/cv/master/compile", headers=AUTH)
     assert r.status_code == 200
     assert r.json() == {
@@ -220,7 +220,7 @@ def test_compile_reports_what_a_parser_gets_back(client, monkeypatch, tmp_path):
             Finding("error", "email_missing", "no email in the text layer", "fix the header")
         ],
     )
-    monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", lambda doc, scope: FakeResult())
+    monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", lambda doc, scope, override=None: FakeResult())
     monkeypatch.setattr("jobpilot.cv.compile.check_pdf", lambda p, d, s: report)
 
     ats = client.post("/cv/master/compile", headers=AUTH).json()["ats"]
@@ -230,7 +230,7 @@ def test_compile_reports_what_a_parser_gets_back(client, monkeypatch, tmp_path):
 
 
 def test_compile_surfaces_latex_failure_as_422(client, monkeypatch):
-    def boom(doc, scope):
+    def boom(doc, scope, override=None):
         raise BuildError("! Undefined control sequence")
 
     monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", boom)
@@ -248,3 +248,92 @@ def test_pdf_served_after_compile(client, monkeypatch, tmp_path):
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
     assert r.content.startswith(b"%PDF")
+
+
+# --------------------------------------------------------------------------- #
+# Raw LaTeX override
+# --------------------------------------------------------------------------- #
+def test_tex_starts_generated_and_is_not_an_override(client):
+    r = client.get("/cv/master/tex", headers=AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["overridden"] is False
+    assert "cv.tex" in body["files"]
+    assert body["files"] == body["generated"]
+
+
+def test_override_is_what_gets_built(client, monkeypatch):
+    seen = {}
+
+    class FakeResult:
+        pages = 1
+        pdf = None
+
+    def fake_compile(doc, scope, override=None):
+        seen["override"] = override
+        return FakeResult()
+
+    monkeypatch.setattr("jobpilot.api.routes.cv.compile_document", fake_compile)
+    monkeypatch.setattr("jobpilot.api.routes.cv.check_build", lambda *a, **k: None)
+
+    client.post("/cv/master/compile", headers=AUTH)
+    assert seen["override"] is None
+
+    r = client.put("/cv/master/tex", headers=AUTH, json={"files": {"cv.tex": "% mine\n"}})
+    assert r.status_code == 200
+    assert r.json()["overridden"] is True
+    assert r.json()["files"]["cv.tex"] == "% mine\n"
+    # …and the generated text is still reported, so the editor can offer a revert.
+    assert r.json()["generated"]["cv.tex"] != "% mine\n"
+
+    client.post("/cv/master/compile", headers=AUTH)
+    assert seen["override"] == {"cv.tex": "% mine\n"}
+
+
+def test_saving_the_document_keeps_the_override(client):
+    """A JSON edit must not silently discard hand-written LaTeX."""
+    client.put("/cv/master/tex", headers=AUTH, json={"files": {"cv.tex": "% mine\n"}})
+    doc = _master(client)["document"]
+    doc["header"]["position"] = "Backend Engineer"
+    r = client.put("/cv/master", headers=AUTH, json=doc)
+    assert r.status_code == 200
+    assert r.json()["tex_override"] is True
+    assert client.get("/cv/master/tex", headers=AUTH).json()["files"]["cv.tex"] == "% mine\n"
+
+
+def test_override_is_cleared_only_on_request(client):
+    client.put("/cv/master/tex", headers=AUTH, json={"files": {"cv.tex": "% mine\n"}})
+    r = client.delete("/cv/master/tex", headers=AUTH)
+    assert r.status_code == 200
+    assert r.json()["overridden"] is False
+    assert r.json()["files"] == r.json()["generated"]
+    assert _master(client)["tex_override"] is False
+
+
+@pytest.mark.parametrize(
+    "path", ["/etc/passwd.tex", "../escape.tex", "resume/../../out.tex", "cv.sh"]
+)
+def test_override_paths_that_escape_the_build_dir_are_refused(client, path):
+    r = client.put("/cv/master/tex", headers=AUTH, json={"files": {path: "x"}})
+    assert r.status_code == 422
+
+
+def test_empty_files_is_not_a_silent_delete(client):
+    client.put("/cv/master/tex", headers=AUTH, json={"files": {"cv.tex": "% mine\n"}})
+    r = client.put("/cv/master/tex", headers=AUTH, json={"files": {}})
+    assert r.status_code == 422
+    assert client.get("/cv/master/tex", headers=AUTH).json()["overridden"] is True
+
+
+def test_rollback_restores_the_latex_the_version_was_built_from(client):
+    """Restoring v_n has to mean the PDF v_n produced, .tex included."""
+    overridden = client.put(
+        "/cv/master/tex", headers=AUTH, json={"files": {"cv.tex": "% mine\n"}}
+    ).json()["version"]
+    client.delete("/cv/master/tex", headers=AUTH)
+    assert _master(client)["tex_override"] is False
+
+    r = client.post(f"/cv/master/rollback/{overridden}", headers=AUTH)
+    assert r.status_code == 200
+    assert r.json()["tex_override"] is True
+    assert client.get("/cv/master/tex", headers=AUTH).json()["files"]["cv.tex"] == "% mine\n"
