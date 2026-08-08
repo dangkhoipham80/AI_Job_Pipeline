@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from jobpilot.cv import store
-from jobpilot.cv.compile import ASSETS, build_dir, prepare_build_dir, scope_slug
+from jobpilot.cv.compile import (
+    ASSETS,
+    UnsafeTexPath,
+    build_dir,
+    prepare_build_dir,
+    scope_slug,
+)
 from jobpilot.cv.schema import CvDocument, Header, ParagraphSection
 from jobpilot.store.models import CvVersion
 
@@ -134,3 +140,39 @@ def test_prepare_build_dir_never_touches_the_master_resume_dir(tmp_path):
     dest = prepare_build_dir(_doc("hi"), "itviec:1", tmp_path)
     assert REPO_ROOT not in dest.parents and dest != REPO_ROOT
     assert tmp_path in dest.parents
+
+
+# --------------------------------------------------------------------------- #
+# Raw LaTeX override
+# --------------------------------------------------------------------------- #
+def test_override_is_written_over_the_rendered_project(tmp_path):
+    """Overriding one file leaves the others tracking the JSON."""
+    dest = prepare_build_dir(_doc("hi"), "master", tmp_path, override={"cv.tex": "% mine\n"})
+    assert (dest / "cv.tex").read_text(encoding="utf-8") == "% mine\n"
+    assert "hi" in (dest / "resume" / "summary.tex").read_text(encoding="utf-8")
+
+
+def test_dropping_the_override_restores_the_generated_file(tmp_path):
+    prepare_build_dir(_doc("hi"), "master", tmp_path, override={"cv.tex": "% mine\n"})
+    dest = prepare_build_dir(_doc("hi"), "master", tmp_path)
+    assert "% mine" not in (dest / "cv.tex").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "path",
+    # The two backslash cases matter on Windows, where PurePosixPath reads
+    # "a\\b.tex" as one harmless-looking segment rather than as a path.
+    ["/abs.tex", "../out.tex", "a/../../b.tex", "cv.sh", "a\\b.tex", "..\\escape.tex"],
+)
+def test_override_paths_that_leave_the_build_dir_are_rejected(tmp_path, path):
+    with pytest.raises(UnsafeTexPath):
+        prepare_build_dir(_doc("hi"), "master", tmp_path, override={path: "x"})
+
+
+def test_override_round_trips_through_a_version(db):
+    store.ensure_master(db)
+    assert store.latest_tex_override(db, "master") is None
+    store.save_tex_override(db, "master", {"cv.tex": "% mine\n"})
+    assert store.latest_tex_override(db, "master") == {"cv.tex": "% mine\n"}
+    store.save_tex_override(db, "master", None)
+    assert store.latest_tex_override(db, "master") is None

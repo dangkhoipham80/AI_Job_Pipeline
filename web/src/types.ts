@@ -148,6 +148,17 @@ export interface CvDocumentResponse {
   scope: string;
   version: number;
   document: CvDocument;
+  /** True when the PDF is built from hand-edited LaTeX, not from `document`. */
+  tex_override: boolean;
+}
+
+/** The LaTeX project behind a scope: what it builds, and what the JSON renders to. */
+export interface CvTex {
+  scope: string;
+  version: number;
+  overridden: boolean;
+  files: Record<string, string>;
+  generated: Record<string, string>;
 }
 
 export interface CvVersion {

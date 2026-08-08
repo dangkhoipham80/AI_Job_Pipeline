@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from jobpilot.config import REPO_ROOT, get_config
 from jobpilot.cv.ats import AtsReport, check_pdf
@@ -51,19 +51,58 @@ def sync_assets(dest: Path, source: Path | None = None) -> None:
             shutil.copy2(src, dst)
 
 
-def prepare_build_dir(doc: CvDocument, scope: str = MASTER_SCOPE, root: Path | None = None) -> Path:
-    """Materialize the full LaTeX project for ``doc`` and return its directory."""
+class UnsafeTexPath(ValueError):
+    """A raw-LaTeX override named a file the build dir has no business holding."""
+
+
+def check_override(files: dict[str, str]) -> dict[str, str]:
+    """Validate the paths of a raw ``.tex`` override; returns it unchanged.
+
+    These strings become filesystem paths under ``out/cv/<scope>/``, so they are
+    checked rather than trusted: relative, no traversal, ``.tex`` only. A
+    hand-edited CV is not a threat model on a single-user local box, but "text
+    from a text box turns into a path" is the shape of bug that only ever gets
+    noticed the expensive way.
+    """
+    for path in files:
+        pure = PurePosixPath(path)
+        if pure.is_absolute() or ".." in pure.parts or "\\" in path:
+            raise UnsafeTexPath(f"{path!r} must be a relative path inside the build dir")
+        if pure.suffix != ".tex":
+            raise UnsafeTexPath(f"{path!r} must be a .tex file")
+    return files
+
+
+def prepare_build_dir(
+    doc: CvDocument,
+    scope: str = MASTER_SCOPE,
+    root: Path | None = None,
+    override: dict[str, str] | None = None,
+) -> Path:
+    """Materialize the full LaTeX project for ``doc`` and return its directory.
+
+    ``override`` is written *over* the rendered project rather than instead of
+    it, so editing ``cv.tex`` by hand doesn't oblige you to also hand-write every
+    section file — the ones you left alone keep tracking the JSON.
+    """
     dest = build_dir(scope, root)
     sync_assets(dest)
     write_document(doc, dest)
+    for rel, text in check_override(override or {}).items():
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
     return dest
 
 
 def compile_document(
-    doc: CvDocument, scope: str = MASTER_SCOPE, root: Path | None = None
+    doc: CvDocument,
+    scope: str = MASTER_SCOPE,
+    root: Path | None = None,
+    override: dict[str, str] | None = None,
 ) -> BuildResult:
     """Render + build. Raises ``BuildError`` if LaTeX or Docker fails."""
-    return build_cv(prepare_build_dir(doc, scope, root))
+    return build_cv(prepare_build_dir(doc, scope, root, override))
 
 
 def check_build(
