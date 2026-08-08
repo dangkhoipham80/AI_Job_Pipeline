@@ -83,6 +83,32 @@ class CvDocumentOut(BaseModel):
     scope: str
     version: int
     document: CvDocument
+    #: True when the PDF is built from hand-edited LaTeX, so edits made here no
+    #: longer reach it. The editor has to say so — silently ignoring what someone
+    #: types is worse than refusing to accept it.
+    tex_override: bool = False
+
+
+class CvTexOut(BaseModel):
+    """The LaTeX project behind a scope, for the raw editor.
+
+    Carries both what the JSON renders to and what is actually built, so the
+    editor can show a per-file "revert to generated" without a second request —
+    and so a stale override is visible rather than merely in effect.
+    """
+
+    scope: str
+    version: int
+    overridden: bool
+    #: Effective project: generated files with the override written over them.
+    files: dict[str, str]
+    generated: dict[str, str]
+
+
+class CvTexIn(BaseModel):
+    """Raw ``.tex`` files to build instead of the generated ones."""
+
+    files: dict[str, str]
 
 
 class CvVersionOut(BaseModel):

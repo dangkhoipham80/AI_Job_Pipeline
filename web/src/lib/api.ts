@@ -10,6 +10,7 @@ import type {
   CvCompileResult,
   CvDocument,
   CvDocumentResponse,
+  CvTex,
   CvVersion,
   CvVersionDetail,
   CvVersionDiff,
@@ -96,6 +97,13 @@ export const api = {
     req<CvVersionDiff>(`${cvPath(scope)}/diff?base=${base}&target=${target}`),
   rollbackCv: (scope: string, version: number) =>
     req<CvDocumentResponse>(`${cvPath(scope)}/rollback/${version}`, { method: "POST" }),
+
+  /* Raw LaTeX. `saveCvTex` makes the build follow hand-written .tex; `resetCvTex`
+     hands it back to the structured document. Both append a version. */
+  cvTex: (scope: string) => req<CvTex>(`${cvPath(scope)}/tex`),
+  saveCvTex: (scope: string, files: Record<string, string>) =>
+    req<CvTex>(`${cvPath(scope)}/tex`, { method: "PUT", body: JSON.stringify({ files }) }),
+  resetCvTex: (scope: string) => req<CvTex>(`${cvPath(scope)}/tex`, { method: "DELETE" }),
 
   /** Fetch the compiled PDF as an object URL (the <iframe> can't send the token). */
   cvPdfUrl: async (scope: string): Promise<string> => {

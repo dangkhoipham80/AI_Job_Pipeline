@@ -15,14 +15,16 @@ from jobpilot.api.deps import get_db, require_token
 from jobpilot.api.schemas import (
     CvCompileOut,
     CvDocumentOut,
+    CvTexIn,
+    CvTexOut,
     CvVersionDetailOut,
     CvVersionDiffOut,
     CvVersionOut,
 )
 from jobpilot.api.ws import manager
 from jobpilot.cv import store
-from jobpilot.cv.compile import build_dir, check_build, compile_document
-from jobpilot.cv.render import list_templates, render_tex_snapshot
+from jobpilot.cv.compile import UnsafeTexPath, build_dir, check_build, check_override, compile_document
+from jobpilot.cv.render import list_templates, render_document, render_tex_snapshot
 from jobpilot.cv.schema import CvDocument
 from jobpilot.store.models import Job
 from jobpilot.tailor.build import BuildError
@@ -49,7 +51,12 @@ def get_cv(scope: str, db: Session = Depends(get_db)) -> CvDocumentOut:
     """Current document for the scope. Auto-seeds ``master`` from the imported CV."""
     doc = _load(db, scope)
     row = store.latest_version(db, scope)
-    return CvDocumentOut(scope=scope, version=row.version if row else 0, document=doc)
+    return CvDocumentOut(
+        scope=scope,
+        version=row.version if row else 0,
+        document=doc,
+        tex_override=store.latest_tex_override(db, scope) is not None,
+    )
 
 
 @router.put("/{scope}", response_model=CvDocumentOut)
@@ -59,12 +66,74 @@ async def put_cv(
     author: str = "user",
     db: Session = Depends(get_db),
 ) -> CvDocumentOut:
-    """Save a new version. Every save appends -- nothing is overwritten."""
+    """Save a new version. Every save appends -- nothing is overwritten.
+
+    A raw-LaTeX override carries forward: dropping it here would silently throw
+    away hand-written ``.tex`` the moment you touched an unrelated field. It is
+    cleared explicitly, via ``DELETE /cv/{scope}/tex``.
+    """
     if scope != store.MASTER_SCOPE and store.latest_version(db, scope) is None:
         raise HTTPException(status_code=404, detail=f"no CV versions for scope {scope!r}")
-    row = store.save_version(db, scope, document, author=author)
+    override = store.latest_tex_override(db, scope)
+    row = store.save_version(
+        db,
+        scope,
+        document,
+        author=author,
+        meta={store.TEX_OVERRIDE_KEY: override} if override else None,
+    )
     await manager.broadcast({"type": "cv_updated", "scope": scope, "version": row.version})
-    return CvDocumentOut(scope=scope, version=row.version, document=document)
+    return CvDocumentOut(
+        scope=scope, version=row.version, document=document, tex_override=override is not None
+    )
+
+
+@router.get("/{scope}/tex", response_model=CvTexOut)
+def get_tex(scope: str, db: Session = Depends(get_db)) -> CvTexOut:
+    """The LaTeX project for the scope: generated, and what is actually built."""
+    doc = _load(db, scope)
+    row = store.latest_version(db, scope)
+    generated = render_document(doc)
+    override = store.latest_tex_override(db, scope)
+    return CvTexOut(
+        scope=scope,
+        version=row.version if row else 0,
+        overridden=override is not None,
+        files={**generated, **(override or {})},
+        generated=generated,
+    )
+
+
+@router.put("/{scope}/tex", response_model=CvTexOut)
+async def put_tex(scope: str, body: CvTexIn, db: Session = Depends(get_db)) -> CvTexOut:
+    """Build this scope from hand-edited LaTeX from now on.
+
+    The structured document is untouched — this records that its *serialization*
+    was overruled, which is why it appends a version like any other edit.
+    """
+    _load(db, scope)
+    # An empty body would otherwise fall through to "clear the override" — a PUT
+    # that silently means DELETE. Clearing has its own verb.
+    if not body.files:
+        raise HTTPException(
+            status_code=422, detail="files must not be empty — DELETE clears the override"
+        )
+    try:
+        check_override(body.files)
+    except UnsafeTexPath as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = store.save_tex_override(db, scope, body.files)
+    await manager.broadcast({"type": "cv_updated", "scope": scope, "version": row.version})
+    return get_tex(scope, db)
+
+
+@router.delete("/{scope}/tex", response_model=CvTexOut)
+async def delete_tex(scope: str, db: Session = Depends(get_db)) -> CvTexOut:
+    """Drop the override and go back to building from the structured document."""
+    _load(db, scope)
+    row = store.save_tex_override(db, scope, None)
+    await manager.broadcast({"type": "cv_updated", "scope": scope, "version": row.version})
+    return get_tex(scope, db)
 
 
 @router.post("/{scope}/compile", response_model=CvCompileOut)
@@ -73,7 +142,7 @@ async def compile_cv(scope: str, db: Session = Depends(get_db)) -> CvCompileOut:
     doc = _load(db, scope)
     row = store.latest_version(db, scope)
     try:
-        result = compile_document(doc, scope)
+        result = compile_document(doc, scope, override=store.latest_tex_override(db, scope))
     except BuildError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # Compiling answers "does this build?". It does not answer "can a machine
@@ -187,4 +256,9 @@ async def rollback_cv(scope: str, version: int, db: Session = Depends(get_db)) -
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     doc = CvDocument.model_validate(row.content)
     await manager.broadcast({"type": "cv_updated", "scope": scope, "version": row.version})
-    return CvDocumentOut(scope=scope, version=row.version, document=doc)
+    return CvDocumentOut(
+        scope=scope,
+        version=row.version,
+        document=doc,
+        tex_override=bool((row.meta or {}).get(store.TEX_OVERRIDE_KEY)),
+    )

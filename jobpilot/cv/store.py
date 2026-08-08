@@ -97,6 +97,37 @@ def save_version(
     return row
 
 
+#: Key under ``cv_versions.meta`` holding a hand-edited LaTeX project.
+TEX_OVERRIDE_KEY = "tex_override"
+
+
+def latest_tex_override(db: Session, scope: str) -> dict[str, str] | None:
+    """Raw ``.tex`` the newest version builds from, or ``None`` for the rendered one.
+
+    Lives in ``meta`` rather than a column because it is an exception, not a
+    second source of truth: the structured JSON in ``content`` still describes
+    the CV, and the override records that a human overruled how it serializes.
+    """
+    row = latest_version(db, scope)
+    if row is None:
+        return None
+    files = (row.meta or {}).get(TEX_OVERRIDE_KEY)
+    return dict(files) if files else None
+
+
+def save_tex_override(
+    db: Session, scope: str, files: dict[str, str] | None, author: str = "user"
+) -> CvVersion:
+    """Append a version whose document is unchanged but whose LaTeX is (or isn't) overridden.
+
+    ``files=None`` clears the override, which is how you get back to the
+    round-tripping editor: the next build renders from the JSON again.
+    """
+    doc = get_document(db, scope)
+    meta = {TEX_OVERRIDE_KEY: files} if files else {}
+    return save_version(db, scope, doc, author=author, meta=meta)
+
+
 def ensure_master(db: Session) -> CvVersion:
     """Create an empty Master CV on first use; idempotent.
 
@@ -122,12 +153,24 @@ def get_document(db: Session, scope: str) -> CvDocument:
 
 
 def rollback(db: Session, scope: str, version: int) -> CvVersion:
-    """Re-save an older version as the newest one (history is never rewritten)."""
+    """Re-save an older version as the newest one (history is never rewritten).
+
+    The target's raw-LaTeX override comes back with it. "Restore v7" has to mean
+    the PDF v7 built; carrying the document but not the ``.tex`` it was actually
+    compiled from would restore a version that never existed.
+    """
     target = get_version(db, scope, version)
     if target is None:
         raise ScopeNotFound(f"scope {scope!r} has no version {version}")
     doc = CvDocument.model_validate(target.content)
-    return save_version(db, scope, doc, author=target.author)
+    override = (target.meta or {}).get(TEX_OVERRIDE_KEY)
+    return save_version(
+        db,
+        scope,
+        doc,
+        author=target.author,
+        meta={TEX_OVERRIDE_KEY: dict(override)} if override else None,
+    )
 
 
 def fork_from_master(db: Session, job_id: str, author: str = "agent") -> CvVersion:

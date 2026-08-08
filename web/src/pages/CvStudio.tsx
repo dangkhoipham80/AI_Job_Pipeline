@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Plus, Save, X } from "lucide-react";
+import { Code2, LayoutList, Plus, Save, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { Button, Card, CardBody, Select, Skeleton } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import { AtsPanel } from "@/components/cv/AtsPanel";
 import { MarkupLegend } from "@/components/cv/fields";
 import { HeaderEditor } from "@/components/cv/HeaderEditor";
 import { PdfPreview } from "@/components/cv/PdfPreview";
+import { RawLatexEditor } from "@/components/cv/RawLatexEditor";
 import { SectionEditor } from "@/components/cv/SectionEditor";
 import { VersionHistory } from "@/components/cv/VersionHistory";
 import { DiffPanel } from "@/components/review/DiffPanel";
@@ -36,6 +38,7 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [savedVersion, setSavedVersion] = useState(0);
 
+  const [mode, setMode] = useState<"fields" | "latex">("fields");
   const [compiling, setCompiling] = useState(false);
   const [compiledAt, setCompiledAt] = useState(0);
   const [pages, setPages] = useState<number | null>(null);
@@ -135,17 +138,26 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
           <p className="text-sm text-ink-muted">
             {scope === "master" ? "Master CV" : `Tailored · ${scope}`} · v{savedVersion}
             {dirty && <span className="ml-2 text-accent">unsaved changes</span>}
+            {/* Said here too, not only inside the LaTeX tab: while an override
+                is in force these fields don't reach the PDF, and finding that
+                out from a PDF that ignored your edits is the bad way. */}
+            {data?.tex_override && (
+              <span className="ml-2 text-accent">building from raw LaTeX</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {actionError && <span className="text-sm text-critical">{actionError}</span>}
-          <Button onClick={save} disabled={!dirty || saving}>
-            <Save size={15} /> {saving ? "Saving…" : "Save version"}
-          </Button>
+          <ModeSwitch mode={mode} onChange={setMode} />
+          {mode === "fields" && (
+            <Button onClick={save} disabled={!dirty || saving}>
+              <Save size={15} /> {saving ? "Saving…" : "Save version"}
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_460px] 2xl:grid-cols-[minmax(0,1fr)_620px]">
         {/* Editor */}
         <div className="flex min-w-0 flex-col gap-4">
           {compare && (
@@ -156,27 +168,42 @@ export function CvStudio({ version: wsVersion }: { version: number }) {
               onClose={() => setCompare(null)}
             />
           )}
-          <MarkupLegend />
-          <HeaderEditor
-            header={draft.header}
-            theme={draft.theme}
-            onHeader={(header) => setDraft({ ...draft, header })}
-            onTheme={(theme) => setDraft({ ...draft, theme })}
-          />
-
-          {draft.sections.map((section, i) => (
-            <SectionEditor
-              key={`${section.key}-${i}`}
-              section={section}
-              disableUp={i === 0}
-              disableDown={i === draft.sections.length - 1}
-              onMove={(delta) => moveSection(i, delta)}
-              onChange={(next) => setSections(draft.sections.map((s, j) => (j === i ? next : s)))}
-              onRemove={() => setSections(draft.sections.filter((_, j) => j !== i))}
+          {mode === "latex" ? (
+            <RawLatexEditor
+              scope={scope}
+              version={savedVersion}
+              onSaved={() => {
+                setSavedVersion((v) => v + 1);
+                refetch();
+              }}
             />
-          ))}
+          ) : (
+            <>
+              <MarkupLegend />
+              <HeaderEditor
+                header={draft.header}
+                theme={draft.theme}
+                onHeader={(header) => setDraft({ ...draft, header })}
+                onTheme={(theme) => setDraft({ ...draft, theme })}
+              />
 
-          <AddSection onAdd={(type) => setSections([...draft.sections, NEW_SECTION[type]()])} />
+              {draft.sections.map((section, i) => (
+                <SectionEditor
+                  key={`${section.key}-${i}`}
+                  section={section}
+                  disableUp={i === 0}
+                  disableDown={i === draft.sections.length - 1}
+                  onMove={(delta) => moveSection(i, delta)}
+                  onChange={(next) =>
+                    setSections(draft.sections.map((s, j) => (j === i ? next : s)))
+                  }
+                  onRemove={() => setSections(draft.sections.filter((_, j) => j !== i))}
+                />
+              ))}
+
+              <AddSection onAdd={(type) => setSections([...draft.sections, NEW_SECTION[type]()])} />
+            </>
+          )}
         </div>
 
         {/* Right rail */}
@@ -266,6 +293,35 @@ function VersionCompare({
   );
 }
 
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: "fields" | "latex";
+  onChange: (next: "fields" | "latex") => void;
+}) {
+  const tabs = [
+    { id: "fields" as const, label: "Fields", icon: LayoutList },
+    { id: "latex" as const, label: "LaTeX", icon: Code2 },
+  ];
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg border p-0.5">
+      {tabs.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          onClick={() => onChange(id)}
+          className={cn(
+            "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium transition-colors",
+            mode === id ? "bg-accent/12 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink",
+          )}
+        >
+          <Icon size={14} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AddSection({ onAdd }: { onAdd: (type: CvSectionType) => void }) {
   const [type, setType] = useState<CvSectionType>("bullets");
   return (
@@ -286,7 +342,7 @@ function AddSection({ onAdd }: { onAdd: (type: CvSectionType) => void }) {
 
 function StudioSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_460px] 2xl:grid-cols-[minmax(0,1fr)_620px]">
       <div className="flex flex-col gap-4">
         <Skeleton className="h-56" />
         <Skeleton className="h-14" />
