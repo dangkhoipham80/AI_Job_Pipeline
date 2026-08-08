@@ -170,6 +170,14 @@ def _is_one_city(part: str) -> bool:
     low = clean_text(part).lower()
     if not low:
         return False
+    # Abbreviations and unaccented spellings first, because they are exact.
+    # Without this the gate and the canonicaliser knew different vocabularies:
+    # ``canonical_city("TPHCM")`` answered "Hồ Chí Minh" while this returned
+    # False, so the pipeline dropped it — and the unit test still passed,
+    # because it called the canonicaliser directly and never the path
+    # production takes.
+    if _fold_city(low) in _CITY_ALIASES:
+        return True
     for city in CITIES:
         name = city.lower()
         if name not in low:
@@ -286,29 +294,32 @@ _CITY_ALIASES = {
 }
 
 
-def canonical_city(text: str | None) -> str | None:
-    """One agreed label for a city, whatever spelling the board used.
+def _fold_city(text: str) -> str:
+    """``"Hà Nội"`` → ``"ha noi"`` — accents stripped, punctuation dropped.
 
-    Built on the same ASCII fold ``apply/inbox.fold`` uses, and for the same
-    reason: Vietnamese place names are written with and without diacritics
-    interchangeably, so comparison has to happen with them removed.
+    The same ASCII fold ``apply/inbox.fold`` uses, and for the same reason:
+    Vietnamese place names are written with and without diacritics
+    interchangeably, so comparison has to happen with them removed. ``đ`` has no
+    combining form, so NFD leaves it alone and it is replaced by hand.
     """
     import unicodedata
 
+    decomposed = unicodedata.normalize("NFD", (text or "").lower())
+    folded = "".join(c for c in decomposed if not unicodedata.combining(c)).replace("đ", "d")
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z ]+", " ", folded)).strip()
+
+
+def canonical_city(text: str | None) -> str | None:
+    """One agreed label for a city, whatever spelling the board used."""
     cleaned = clean_city(text)
     if not cleaned:
         return None
-    decomposed = unicodedata.normalize("NFD", cleaned.lower())
-    folded = "".join(c for c in decomposed if not unicodedata.combining(c)).replace("đ", "d")
-    folded = re.sub(r"[^a-z ]+", " ", folded)
-    folded = re.sub(r"\s+", " ", folded).strip()
+    folded = _fold_city(cleaned)
     if folded in _CITY_ALIASES:
         return _CITY_ALIASES[folded]
     # A known city written in full, accents and all: return the canonical
     # spelling from CITIES rather than whatever casing the board used.
     for city in CITIES:
-        city_dec = unicodedata.normalize("NFD", city.lower())
-        city_folded = "".join(c for c in city_dec if not unicodedata.combining(c)).replace("đ", "d")
-        if city_folded == folded:
+        if _fold_city(city) == folded:
             return city
     return cleaned

@@ -175,3 +175,37 @@ def test_the_calendar_counts_posting_days_not_crawl_days():
     facet = market.posting_calendar(payloads)
     assert {r["key"]: r["count"] for r in facet.rows} == {"2026-08-01": 2, "2026-08-02": 1}
     assert facet.covered == 3 and facet.total == 4
+
+
+def test_microservices_survives_the_industry_filter():
+    """The bug the review gate caught, and the reason it caught it and 658 tests
+    did not: "services" with no word boundary is a substring of "microservices",
+    so one of the most common tags on the market was dropped from every ranking.
+    The chart still rendered perfectly — it was just missing an entry nobody
+    could see was missing.
+
+    Same shape as `"remote" in "remote debugging"` and `intern` inside
+    `internal`, both of which this repo has already paid for once.
+    """
+    from jobpilot.crawler.skills import canonical
+
+    assert canonical("microservices") == "microservices"
+    assert canonical("web services") == "web services"
+    # And the industry sense is still filtered, which is what the pattern is for.
+    assert canonical("IT Services and IT Consulting") is None
+    assert canonical("Financial Services") is None
+
+
+def test_a_city_abbreviation_survives_the_production_path():
+    """`canonical_city("TPHCM")` always answered correctly, but `derived_facets`
+    gates on `looks_like_city`, which knew a different vocabulary — so the
+    pipeline dropped it and the unit test passed anyway by calling the
+    canonicaliser directly. Test the path production actually takes.
+    """
+    from jobpilot.crawler.normalize import derived_facets
+
+    for spelling in ("HN", "TPHCM", "Saigon", "Ha Noi", "Hà Nội"):
+        assert derived_facets(None, [], spelling)["city"] in {"Hà Nội", "Hồ Chí Minh"}
+
+    # And a non-place still yields no city rather than a bogus one.
+    assert derived_facets(None, [], "Anywhere in the World")["city"] is None

@@ -9,6 +9,7 @@ for the dashboard's Runs page.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -100,6 +101,7 @@ def run_crawl(
     dedup_days: int = 14,
     record_run: bool = True,
     limit: int | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> RunReport:
     """Crawl every scraper into ``session`` and return a :class:`RunReport`.
 
@@ -118,21 +120,37 @@ def run_crawl(
         session.flush()  # assign run.id
 
     report = RunReport(run_id=run.id if run else None)
-    for scraper in scrapers:
+    total = len(scrapers)
+    for index, scraper in enumerate(scrapers, start=1):
+        # Announced *before* the work, not after. A site behind a rate limiter
+        # and a headless browser can take a minute on its own, and the point of
+        # a progress line is to say what is happening *during* that minute.
+        if on_progress:
+            on_progress(f"[{index}/{total}] crawling {scraper.source}…")
         try:
-            report.sites.append(
-                _crawl_site(scraper, cfg, session, query, now, dedup_days, report.run_id, limit)
+            site = _crawl_site(
+                scraper, cfg, session, query, now, dedup_days, report.run_id, limit
             )
+            report.sites.append(site)
+            if on_progress:
+                s = site.stats
+                on_progress(f"[{index}/{total}] {scraper.source}: {s.fetched} found, {s.inserted} new")
         except Exception as exc:
             log.exception("[%s] crawl failed", scraper.source)
             report.sites.append(
                 SiteReport(scraper.source, ok=False, stats=CrawlStats(errors=1), error=str(exc))
             )
+            if on_progress:
+                on_progress(f"[{index}/{total}] {scraper.source}: failed")
         finally:
             scraper.close()
 
     if run is not None:
-        run.finished_at = now
+        # A *fresh* timestamp. This reused `now`, captured at the top of the
+        # function, so every run recorded a finish before its own start and a
+        # duration of roughly zero — the Runs page could never say how long a
+        # crawl took, which is the one thing you want while waiting for one.
+        run.finished_at = vn_now()
         run.stats = {
             "query": query,
             "totals": report.totals.as_dict(),
